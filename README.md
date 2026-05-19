@@ -25,6 +25,17 @@ It works in Cursor, VS Code, Discord, Slack, Mail, Notion, Linear, Safari,
 Notes, your terminal — anywhere macOS gives you a cursor. Nothing to integrate,
 no per-app accounts, no plugins. **Ecosystem-, app-, and input-agnostic.**
 
+> ### 🔑 Two independent tools that play well together
+>
+> **Refine works on *any* text you've selected on your Mac.** You don't have
+> to dictate first. Emails you typed by hand, code comments, Slack drafts,
+> things you pasted in from somewhere else — select it, double-tap Right
+> Option, pick a mode, done.
+>
+> Dictation is just one fast way to *get* text into a field. Refine makes any
+> text better, no matter where it came from. Use either, both, or one without
+> the other.
+
 ---
 
 ## You stay in control
