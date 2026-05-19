@@ -4,6 +4,17 @@ import AppKit
 /// stacked vertically inside an `NSVisualEffectView`: Status, AI Provider,
 /// General, and Modes. Saves are explicit per section.
 final class PreferencesWindowController: NSWindowController {
+    // Window + content metrics. Document view = window content width minus
+    // the vertical scroller, so nothing horizontally clips. All inner
+    // controls cap themselves at `contentWidth` so the layout never
+    // overflows on the right or scrolls horizontally.
+    private static let windowWidth: CGFloat = 620
+    private static let windowHeight: CGFloat = 720
+    private static let scrollerInset: CGFloat = 16
+    private static let documentWidth: CGFloat = windowWidth - scrollerInset
+    private static let outerInset: CGFloat = 24
+    private static let contentWidth: CGFloat = documentWidth - outerInset * 2
+
     private let appDir: String
     private var config: AppConfig
 
@@ -27,7 +38,7 @@ final class PreferencesWindowController: NSWindowController {
         self.config = ConfigStore.load(appDir: appDir)
 
         let window = OverlayPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
+            contentRect: NSRect(x: 0, y: 0, width: Self.windowWidth, height: Self.windowHeight),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -49,8 +60,13 @@ final class PreferencesWindowController: NSWindowController {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 18
-        stack.edgeInsets = NSEdgeInsets(top: 18, left: 22, bottom: 18, right: 22)
+        stack.spacing = 20
+        stack.edgeInsets = NSEdgeInsets(
+            top: Self.outerInset,
+            left: Self.outerInset,
+            bottom: Self.outerInset,
+            right: Self.outerInset
+        )
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         stack.addArrangedSubview(buildStatusSection())
@@ -61,6 +77,7 @@ final class PreferencesWindowController: NSWindowController {
 
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
         scroll.drawsBackground = false
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
@@ -72,7 +89,7 @@ final class PreferencesWindowController: NSWindowController {
             stack.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: documentView.bottomAnchor),
-            documentView.widthAnchor.constraint(equalToConstant: 560),
+            documentView.widthAnchor.constraint(equalToConstant: Self.documentWidth),
         ])
         scroll.documentView = documentView
 
@@ -88,6 +105,10 @@ final class PreferencesWindowController: NSWindowController {
         return label
     }
 
+    /// Builds a field row: an optional caption above, the control, and an
+    /// optional wrapping help-text caption below. All elements share the
+    /// same leading edge inside their stack so columns line up across
+    /// sections.
     private func buildField(_ label: String, control: NSView, helpText: String? = nil) -> NSView {
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -103,9 +124,10 @@ final class PreferencesWindowController: NSWindowController {
         stack.addArrangedSubview(control)
 
         if let helpText {
-            let help = NSTextField(labelWithString: helpText)
-            help.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+            let help = NSTextField(wrappingLabelWithString: helpText)
+            help.font = NSFont.systemFont(ofSize: 11, weight: .regular)
             help.textColor = .secondaryLabelColor
+            help.preferredMaxLayoutWidth = Self.contentWidth
             stack.addArrangedSubview(help)
         }
         return stack
@@ -126,7 +148,7 @@ final class PreferencesWindowController: NSWindowController {
         statusLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
         statusLabel.textColor = .labelColor
         statusLabel.maximumNumberOfLines = 0
-        statusLabel.preferredMaxLayoutWidth = 516
+        statusLabel.preferredMaxLayoutWidth = Self.contentWidth
         stack.addArrangedSubview(statusLabel)
 
         let row = NSStackView()
@@ -185,29 +207,32 @@ final class PreferencesWindowController: NSWindowController {
         providerPicker.action = #selector(providerChanged(_:))
         stack.addArrangedSubview(buildField("Provider", control: providerPicker))
 
-        // API key field for the selected provider.
+        // API key field + Save button on one row. "Get an API key…" sits
+        // below as a subtle accessory link so the row width never exceeds
+        // the available content area.
         apiKeyField = NSSecureTextField()
         apiKeyField.translatesAutoresizingMaskIntoConstraints = false
-        apiKeyField.widthAnchor.constraint(equalToConstant: 360).isActive = true
-
-        let apiRow = NSStackView()
-        apiRow.orientation = .horizontal
-        apiRow.spacing = 8
-        apiRow.addArrangedSubview(apiKeyField)
+        apiKeyField.widthAnchor.constraint(equalToConstant: Self.contentWidth - 96).isActive = true
 
         let saveKey = NSButton(title: "Save key", target: self, action: #selector(saveAPIKey))
         saveKey.bezelStyle = .rounded
-        apiRow.addArrangedSubview(saveKey)
 
-        let getKey = NSButton(title: "Get an API key…", target: self, action: #selector(openSignupURL))
-        getKey.bezelStyle = .accessoryBarAction
-        apiRow.addArrangedSubview(getKey)
+        let apiRow = NSStackView(views: [apiKeyField, saveKey])
+        apiRow.orientation = .horizontal
+        apiRow.spacing = 8
+        apiRow.alignment = .firstBaseline
 
         stack.addArrangedSubview(buildField(
             "API Key (stored only in macOS Keychain)",
             control: apiRow,
             helpText: "Saved under service “penny”, account = provider name. Not written to disk."
         ))
+
+        let getKey = NSButton(title: "Get an API key for this provider →", target: self, action: #selector(openSignupURL))
+        getKey.bezelStyle = .accessoryBarAction
+        getKey.isBordered = false
+        getKey.contentTintColor = .controlAccentColor
+        stack.addArrangedSubview(getKey)
 
         // Model picker for the selected provider.
         modelPicker = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -219,14 +244,14 @@ final class PreferencesWindowController: NSWindowController {
         modelBlurb = NSTextField(wrappingLabelWithString: "")
         modelBlurb.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         modelBlurb.textColor = .secondaryLabelColor
-        modelBlurb.preferredMaxLayoutWidth = 516
+        modelBlurb.preferredMaxLayoutWidth = Self.contentWidth
         stack.addArrangedSubview(modelBlurb)
 
         // Custom slug input (revealed when "Custom slug…" is chosen).
         customSlugField = NSTextField()
         customSlugField.placeholderString = "exact model identifier"
         customSlugField.translatesAutoresizingMaskIntoConstraints = false
-        customSlugField.widthAnchor.constraint(equalToConstant: 360).isActive = true
+        customSlugField.widthAnchor.constraint(equalToConstant: Self.contentWidth - 96).isActive = true
         customSlugField.target = self
         customSlugField.action = #selector(customSlugChanged(_:))
         customSlugField.isHidden = true
@@ -373,7 +398,7 @@ final class PreferencesWindowController: NSWindowController {
         whisperBlurb = NSTextField(wrappingLabelWithString: "")
         whisperBlurb.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         whisperBlurb.textColor = .secondaryLabelColor
-        whisperBlurb.preferredMaxLayoutWidth = 516
+        whisperBlurb.preferredMaxLayoutWidth = Self.contentWidth
         stack.addArrangedSubview(whisperBlurb)
 
         let ramText = NSTextField(labelWithString:
@@ -542,13 +567,13 @@ final class PreferencesWindowController: NSWindowController {
         idColumn.width = 28
         let nameColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         nameColumn.title = "Name"
-        nameColumn.width = 160
+        nameColumn.width = 180
         let detailColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("detail"))
         detailColumn.title = "Description"
-        detailColumn.width = 260
+        detailColumn.width = 300
         let lockedColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("locked"))
         lockedColumn.title = ""
-        lockedColumn.width = 30
+        lockedColumn.width = 32
         modesTable.addTableColumn(idColumn)
         modesTable.addTableColumn(nameColumn)
         modesTable.addTableColumn(detailColumn)
@@ -559,7 +584,7 @@ final class PreferencesWindowController: NSWindowController {
         scroll.hasVerticalScroller = true
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.heightAnchor.constraint(equalToConstant: 260).isActive = true
-        scroll.widthAnchor.constraint(equalToConstant: 516).isActive = true
+        scroll.widthAnchor.constraint(equalToConstant: Self.contentWidth).isActive = true
 
         stack.addArrangedSubview(scroll)
 

@@ -51,9 +51,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !isProcessing else { return }
         isProcessing = true
 
-        // If our menu bar item happens to have an open menu, dismiss it so
-        // it doesn't compete with the picker for input.
+        // Get every Penny-owned window out of the way before we start. If the
+        // user left Preferences or Onboarding open, the paste back to the
+        // source app would land in the wrong place once they reached for
+        // a Penny window. Hiding them also dismisses any open menu bar
+        // dropdown so it can't compete with the picker.
         menuBar?.dismissMenu()
+        hideOurWindows()
 
         let sourceApp = NSWorkspace.shared.frontmostApplication
         log("Trigger from \(sourceApp?.localizedName ?? "unknown")")
@@ -136,6 +140,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Picker.showToast(title, duration: 1.6)
         log("\(title): \(detail)")
         isProcessing = false
+    }
+
+    /// Order-out any Penny window that could steal focus from the source app
+    /// while we're in the middle of a refinement. Calling `orderOut` keeps
+    /// the window controller alive so the user can re-open the window later
+    /// from the menu bar without losing state.
+    private func hideOurWindows() {
+        preferences?.window?.orderOut(nil)
+        onboarding?.window?.orderOut(nil)
     }
 }
 
