@@ -28,8 +28,12 @@ final class PreferencesWindowController: NSWindowController {
     private var customSlugField: NSTextField!
 
     // Dictation section
-    private var whisperPicker: NSPopUpButton!
-    private var whisperBlurb: NSTextField!
+    private var finalModelPicker: NSPopUpButton!
+    private var finalModelBlurb: NSTextField!
+    private var previewModelPicker: NSPopUpButton!
+    private var previewModelBlurb: NSTextField!
+    private var refreshIntervalField: NSTextField!
+    private var dictionaryView: NSTextView!
 
     // Modes / status
     private var modesTable: NSTableView!
@@ -386,50 +390,152 @@ final class PreferencesWindowController: NSWindowController {
 
         stack.addArrangedSubview(buildSectionHeader("Dictation (Whisper)"))
 
-        whisperPicker = NSPopUpButton(frame: .zero, pullsDown: false)
-        for option in WhisperModels.all {
-            whisperPicker.addItem(withTitle: option.label)
-            whisperPicker.lastItem?.representedObject = option.id
-        }
-        if let item = whisperPicker.itemArray.first(where: { ($0.representedObject as? String) == config.whisperModel }) {
-            whisperPicker.select(item)
-        }
-        whisperPicker.target = self
-        whisperPicker.action = #selector(whisperModelChanged(_:))
-        stack.addArrangedSubview(buildField("Whisper model", control: whisperPicker))
+        // Final-pass model (used for the actual paste on release).
+        finalModelPicker = makeWhisperPicker(selected: config.whisperModel, action: #selector(finalModelChanged(_:)))
+        stack.addArrangedSubview(buildField(
+            "Final transcription model — quality, used for the paste on release",
+            control: finalModelPicker
+        ))
+        finalModelBlurb = makeWhisperBlurb()
+        stack.addArrangedSubview(finalModelBlurb)
 
-        whisperBlurb = NSTextField(wrappingLabelWithString: "")
-        whisperBlurb.font = NSFont.systemFont(ofSize: 11, weight: .regular)
-        whisperBlurb.textColor = .secondaryLabelColor
-        whisperBlurb.preferredMaxLayoutWidth = Self.contentWidth
-        stack.addArrangedSubview(whisperBlurb)
+        // Live preview model (used for the streaming overlay).
+        previewModelPicker = makeWhisperPicker(selected: config.whisperPreviewModel, action: #selector(previewModelChanged(_:)))
+        stack.addArrangedSubview(buildField(
+            "Live preview model — speed, used for the in-overlay live transcript",
+            control: previewModelPicker
+        ))
+        previewModelBlurb = makeWhisperBlurb()
+        stack.addArrangedSubview(previewModelBlurb)
 
+        // Refresh interval (0.2 – 1.5 s).
+        refreshIntervalField = NSTextField()
+        refreshIntervalField.stringValue = String(format: "%.2f", config.whisperPreviewInterval)
+        refreshIntervalField.alignment = .right
+        refreshIntervalField.translatesAutoresizingMaskIntoConstraints = false
+        refreshIntervalField.widthAnchor.constraint(equalToConstant: 80).isActive = true
+        refreshIntervalField.target = self
+        refreshIntervalField.action = #selector(refreshIntervalChanged(_:))
+
+        let intervalRow = NSStackView(views: [refreshIntervalField, Style.plainLabel("seconds", size: 11, weight: .regular, color: .secondaryLabelColor)])
+        intervalRow.orientation = .horizontal
+        intervalRow.spacing = 6
+        intervalRow.alignment = .firstBaseline
+        stack.addArrangedSubview(buildField(
+            "Live preview refresh interval (0.2 – 1.5 seconds)",
+            control: intervalRow,
+            helpText: "How often the preview model re-transcribes while you hold Right Option. Smaller = more responsive overlay; bigger = lower CPU."
+        ))
+
+        // Dictionary editor.
+        dictionaryView = NSTextView(frame: NSRect(x: 0, y: 0, width: Self.contentWidth, height: 110))
+        dictionaryView.isRichText = false
+        dictionaryView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        dictionaryView.string = config.dictionary.joined(separator: "\n")
+        dictionaryView.delegate = nil   // we save explicitly via the Save button below
+
+        let dictionaryScroll = NSScrollView()
+        dictionaryScroll.hasVerticalScroller = true
+        dictionaryScroll.documentView = dictionaryView
+        dictionaryScroll.translatesAutoresizingMaskIntoConstraints = false
+        dictionaryScroll.widthAnchor.constraint(equalToConstant: Self.contentWidth).isActive = true
+        dictionaryScroll.heightAnchor.constraint(equalToConstant: 110).isActive = true
+
+        let dictionarySave = NSButton(title: "Save dictionary", target: self, action: #selector(saveDictionary))
+        dictionarySave.bezelStyle = .rounded
+
+        stack.addArrangedSubview(buildField(
+            "Dictionary — proper nouns, jargon, acronyms (one per line)",
+            control: dictionaryScroll,
+            helpText: "Penny biases Whisper toward these words so it transcribes them correctly. Examples: GraphQL, Notion, jonrepine, BigQuery."
+        ))
+        stack.addArrangedSubview(dictionarySave)
+
+        // Detected RAM hint.
         let ramText = NSTextField(labelWithString:
-            String(format: "Detected %.0f GB of RAM. Larger models give better accuracy but use more memory and disk.", SystemInfo.totalRAMGigabytes()))
+            String(format: "Detected %.0f GB of RAM. Loading both models keeps roughly 3 GB resident at the highest tier.", SystemInfo.totalRAMGigabytes()))
         ramText.font = NSFont.systemFont(ofSize: 10, weight: .regular)
         ramText.textColor = .tertiaryLabelColor
         stack.addArrangedSubview(ramText)
 
-        updateWhisperBlurb()
+        updateWhisperBlurbs()
         return stack
     }
 
-    private func updateWhisperBlurb() {
-        guard let id = whisperPicker.selectedItem?.representedObject as? String,
-              let option = WhisperModels.option(id: id) else { return }
-        whisperBlurb.stringValue = option.blurb
+    private func makeWhisperPicker(selected id: String, action: Selector) -> NSPopUpButton {
+        let picker = NSPopUpButton(frame: .zero, pullsDown: false)
+        for option in WhisperModels.all {
+            picker.addItem(withTitle: option.label)
+            picker.lastItem?.representedObject = option.id
+        }
+        if let item = picker.itemArray.first(where: { ($0.representedObject as? String) == id }) {
+            picker.select(item)
+        }
+        picker.target = self
+        picker.action = action
+        return picker
     }
 
-    @objc private func whisperModelChanged(_ sender: NSPopUpButton) {
-        guard let id = sender.selectedItem?.representedObject as? String else { return }
-        config.whisperModel = id
-        persist()
-        updateWhisperBlurb()
-        // Restart the dictation daemon so it reloads the new model.
+    private func makeWhisperBlurb() -> NSTextField {
+        let blurb = NSTextField(wrappingLabelWithString: "")
+        blurb.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        blurb.textColor = .secondaryLabelColor
+        blurb.preferredMaxLayoutWidth = Self.contentWidth
+        return blurb
+    }
+
+    private func updateWhisperBlurbs() {
+        if let id = finalModelPicker.selectedItem?.representedObject as? String,
+           let option = WhisperModels.option(id: id) {
+            finalModelBlurb.stringValue = option.blurb
+        }
+        if let id = previewModelPicker.selectedItem?.representedObject as? String,
+           let option = WhisperModels.option(id: id) {
+            previewModelBlurb.stringValue = option.blurb
+        }
+    }
+
+    private func restartDictation() {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
         task.arguments = ["kickstart", "-k", "gui/\(getuid())/com.penny.dictate"]
         try? task.run()
+    }
+
+    @objc private func finalModelChanged(_ sender: NSPopUpButton) {
+        guard let id = sender.selectedItem?.representedObject as? String else { return }
+        config.whisperModel = id
+        persist()
+        updateWhisperBlurbs()
+        restartDictation()
+    }
+
+    @objc private func previewModelChanged(_ sender: NSPopUpButton) {
+        guard let id = sender.selectedItem?.representedObject as? String else { return }
+        config.whisperPreviewModel = id
+        persist()
+        updateWhisperBlurbs()
+        restartDictation()
+    }
+
+    @objc private func refreshIntervalChanged(_ sender: NSTextField) {
+        let raw = Double(sender.stringValue) ?? config.whisperPreviewInterval
+        let clamped = max(0.2, min(1.5, raw))
+        sender.stringValue = String(format: "%.2f", clamped)
+        config.whisperPreviewInterval = clamped
+        persist()
+        restartDictation()
+    }
+
+    @objc private func saveDictionary() {
+        let lines = dictionaryView.string
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        config.dictionary = lines
+        persist()
+        Picker.showToast("Dictionary saved (\(lines.count))", duration: 1.2)
+        restartDictation()
     }
 
     // MARK: General section

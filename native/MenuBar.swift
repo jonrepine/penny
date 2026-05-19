@@ -5,6 +5,7 @@ import AppKit
 final class MenuBar: NSObject {
     private let statusItem: NSStatusItem
     private weak var prefsController: PreferencesWindowController?
+    private var historyController: HistoryViewerWindowController?
 
     init(prefsController: PreferencesWindowController) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -27,6 +28,11 @@ final class MenuBar: NSObject {
             title: "Preferences\u{2026}",
             keyEquivalent: ",",
             action: #selector(openPreferences)
+        ))
+        menu.addItem(buildItem(
+            title: "History\u{2026}",
+            keyEquivalent: "h",
+            action: #selector(openHistory)
         ))
         menu.addItem(buildItem(
             title: "Open Log",
@@ -74,6 +80,14 @@ final class MenuBar: NSObject {
         NSApp.activate(ignoringOtherApps: true)
         prefsController?.showWindow(nil)
         prefsController?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc private func openHistory() {
+        if historyController == nil {
+            historyController = HistoryViewerWindowController()
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        historyController?.showWindow(nil)
     }
 
     @objc private func openLog() {

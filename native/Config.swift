@@ -13,11 +13,16 @@ struct AppConfig: Codable {
     var showToasts: Bool
     var whisperModel: String
     /// Optional fast model used for the live transcript shown in the
-    /// listening overlay. When set, the dictation daemon loads both models;
-    /// the preview model runs the streaming loop, the main model is used
-    /// for the final paste on release. Default is "tiny.en" for ~75 MB
-    /// footprint and near-instant streaming.
+    /// listening overlay. Default is "tiny.en" for ~75 MB footprint and
+    /// near-instant streaming.
     var whisperPreviewModel: String
+    /// How often (seconds) the live-preview loop re-transcribes the
+    /// in-progress audio. Range 0.2 – 1.5; default 0.4.
+    var whisperPreviewInterval: Double
+    /// Custom vocabulary biased into Whisper via `initial_prompt` on both
+    /// transcription passes. Helps with proper nouns, jargon, internal
+    /// product names that the model otherwise mishears.
+    var dictionary: [String]
 
     enum CodingKeys: String, CodingKey {
         case llmProvider = "llm_provider"
@@ -29,6 +34,8 @@ struct AppConfig: Codable {
         case showToasts = "show_notifications"
         case whisperModel = "whisper_model"
         case whisperPreviewModel = "whisper_preview_model"
+        case whisperPreviewInterval = "whisper_preview_interval"
+        case dictionary
     }
 
     static var defaults: AppConfig {
@@ -41,7 +48,9 @@ struct AppConfig: Codable {
             historyLimit: 50,
             showToasts: true,
             whisperModel: WhisperModels.defaultForCurrentMac().id,
-            whisperPreviewModel: "tiny.en"
+            whisperPreviewModel: "tiny.en",
+            whisperPreviewInterval: 0.4,
+            dictionary: []
         )
     }
 
@@ -54,7 +63,9 @@ struct AppConfig: Codable {
         historyLimit: Int,
         showToasts: Bool,
         whisperModel: String,
-        whisperPreviewModel: String
+        whisperPreviewModel: String,
+        whisperPreviewInterval: Double,
+        dictionary: [String]
     ) {
         self.llmProvider = llmProvider
         self.model = model
@@ -65,21 +76,25 @@ struct AppConfig: Codable {
         self.showToasts = showToasts
         self.whisperModel = whisperModel
         self.whisperPreviewModel = whisperPreviewModel
+        self.whisperPreviewInterval = whisperPreviewInterval
+        self.dictionary = dictionary
     }
 
     /// Decoder that tolerates older configs missing newer keys.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let d = AppConfig.defaults
-        llmProvider          = (try? container.decode(String.self, forKey: .llmProvider))          ?? d.llmProvider
-        model                = (try? container.decode(String.self, forKey: .model))                ?? d.model
-        maxTokens            = (try? container.decode(Int.self,    forKey: .maxTokens))            ?? d.maxTokens
-        timeoutSeconds       = (try? container.decode(Int.self,    forKey: .timeoutSeconds))       ?? d.timeoutSeconds
-        saveHistory          = (try? container.decode(Bool.self,   forKey: .saveHistory))          ?? d.saveHistory
-        historyLimit         = (try? container.decode(Int.self,    forKey: .historyLimit))         ?? d.historyLimit
-        showToasts           = (try? container.decode(Bool.self,   forKey: .showToasts))           ?? d.showToasts
-        whisperModel         = (try? container.decode(String.self, forKey: .whisperModel))         ?? d.whisperModel
-        whisperPreviewModel  = (try? container.decode(String.self, forKey: .whisperPreviewModel))  ?? d.whisperPreviewModel
+        llmProvider             = (try? container.decode(String.self,   forKey: .llmProvider))             ?? d.llmProvider
+        model                   = (try? container.decode(String.self,   forKey: .model))                   ?? d.model
+        maxTokens               = (try? container.decode(Int.self,      forKey: .maxTokens))               ?? d.maxTokens
+        timeoutSeconds          = (try? container.decode(Int.self,      forKey: .timeoutSeconds))          ?? d.timeoutSeconds
+        saveHistory             = (try? container.decode(Bool.self,     forKey: .saveHistory))             ?? d.saveHistory
+        historyLimit            = (try? container.decode(Int.self,      forKey: .historyLimit))            ?? d.historyLimit
+        showToasts              = (try? container.decode(Bool.self,     forKey: .showToasts))              ?? d.showToasts
+        whisperModel            = (try? container.decode(String.self,   forKey: .whisperModel))            ?? d.whisperModel
+        whisperPreviewModel     = (try? container.decode(String.self,   forKey: .whisperPreviewModel))     ?? d.whisperPreviewModel
+        whisperPreviewInterval  = (try? container.decode(Double.self,   forKey: .whisperPreviewInterval))  ?? d.whisperPreviewInterval
+        dictionary              = (try? container.decode([String].self, forKey: .dictionary))              ?? d.dictionary
     }
 }
 

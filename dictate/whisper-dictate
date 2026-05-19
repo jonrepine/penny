@@ -30,11 +30,13 @@ from pynput import keyboard
 SAMPLE_RATE = 16000
 HOTKEY = keyboard.Key.alt_r            # Right Option
 HOLD_THRESHOLD = 0.22                  # seconds — anything shorter is not a hold
-STREAM_INTERVAL = 0.4                  # seconds between live-preview passes
+DEFAULT_STREAM_INTERVAL = 0.4          # default seconds between live-preview passes
+HISTORY_LIMIT = 200                    # cap entries in dictation-history.json
 
 CONFIG_PATH = os.path.expanduser("~/.penny/config.json")
 STATE_PATH = os.path.expanduser("~/.penny/dictate.state")
 TRANSCRIPT_PATH = os.path.expanduser("~/.penny/dictate.transcript")
+HISTORY_PATH = os.path.expanduser("~/.penny/dictation-history.json")
 
 
 def _read_config() -> dict:
@@ -52,9 +54,31 @@ def whisper_model_from_config() -> str:
 
 def preview_model_from_config() -> str:
     """Preview model: the fastest acceptable Whisper for the live overlay.
-    Defaults to tiny.en — it's enough to make the streaming feel
-    instantaneous without competing with the main model for compute."""
+    Defaults to tiny.en — enough to make streaming feel instantaneous."""
     return _read_config().get("whisper_preview_model", "tiny.en")
+
+
+def stream_interval_from_config() -> float:
+    """How often the live-preview loop re-transcribes (seconds)."""
+    try:
+        value = float(_read_config().get("whisper_preview_interval", DEFAULT_STREAM_INTERVAL))
+    except (TypeError, ValueError):
+        return DEFAULT_STREAM_INTERVAL
+    return max(0.2, min(1.5, value))
+
+
+def dictionary_prompt() -> str | None:
+    """Return an `initial_prompt` string for Whisper biased toward the
+    user's custom vocabulary, or None if no dictionary is configured.
+
+    Whisper uses `initial_prompt` as a soft hint about the preceding
+    context, which biases it toward those words on the next transcription.
+    Wrapping the terms in a natural-sounding sentence works better than
+    a raw comma list."""
+    terms = [str(t).strip() for t in _read_config().get("dictionary") or [] if str(t).strip()]
+    if not terms:
+        return None
+    return "Words to recognise: " + ", ".join(terms) + "."
 
 
 def _atomic_write(path: str, value: str) -> None:
@@ -120,13 +144,15 @@ def begin_recording() -> None:
 
 
 def _streaming_loop() -> None:
-    """Re-transcribes the in-progress recording every STREAM_INTERVAL
-    seconds and writes the latest text to the transcript file. Uses a
-    fast inference path (beam_size=1, no VAD pre-filter) since the goal
-    is responsiveness, not maximum accuracy — the final pass on release
+    """Re-transcribes the in-progress recording every interval seconds
+    and writes the latest text to the transcript file. Uses a fast
+    inference path (beam_size=1, no VAD pre-filter) since the goal is
+    responsiveness, not maximum accuracy — the final pass on release
     uses the slower, more careful settings."""
+    interval = stream_interval_from_config()
+    bias = dictionary_prompt()
     last_text = ""
-    while not stream_stop.wait(STREAM_INTERVAL):
+    while not stream_stop.wait(interval):
         with state_lock:
             if not recording:
                 return
@@ -147,6 +173,7 @@ def _streaming_loop() -> None:
                 vad_filter=False,
                 without_timestamps=True,
                 condition_on_previous_text=False,
+                initial_prompt=bias,
             )
             text = " ".join(s.text.strip() for s in segments).strip()
         except Exception as exc:
@@ -189,7 +216,12 @@ def end_and_transcribe() -> None:
             tmp_path = fh.name
         try:
             wav.write(tmp_path, SAMPLE_RATE, audio)
-            segments, _ = model.transcribe(tmp_path, beam_size=5, vad_filter=True)
+            segments, _ = model.transcribe(
+                tmp_path,
+                beam_size=5,
+                vad_filter=True,
+                initial_prompt=dictionary_prompt(),
+            )
             text = " ".join(segment.text.strip() for segment in segments).strip()
         finally:
             try:
@@ -202,10 +234,43 @@ def end_and_transcribe() -> None:
             return
 
         print(f"→ {text}", flush=True)
+        _append_history(text)
         paste_text(text)
     finally:
         write_transcript("")
         write_state("idle")
+
+
+def _append_history(text: str) -> None:
+    """Append a successful dictation to ~/.penny/dictation-history.json,
+    keeping the last HISTORY_LIMIT entries. Errors here are non-fatal —
+    history is a nice-to-have, not core to the dictation flow."""
+    try:
+        entries = []
+        if os.path.exists(HISTORY_PATH):
+            try:
+                with open(HISTORY_PATH) as fh:
+                    entries = json.load(fh) or []
+            except (OSError, json.JSONDecodeError):
+                entries = []
+
+        entries.insert(0, {
+            "timestamp": _now_iso(),
+            "kind": "dictation",
+            "text": text,
+        })
+        entries = entries[:HISTORY_LIMIT]
+
+        os.makedirs(os.path.dirname(HISTORY_PATH), exist_ok=True)
+        with open(HISTORY_PATH, "w") as fh:
+            json.dump(entries, fh, indent=2, ensure_ascii=False)
+    except Exception as exc:
+        print(f"history append failed: {exc}", flush=True)
+
+
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def paste_text(text: str) -> None:
