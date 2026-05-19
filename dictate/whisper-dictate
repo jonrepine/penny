@@ -30,9 +30,11 @@ from pynput import keyboard
 SAMPLE_RATE = 16000
 HOTKEY = keyboard.Key.alt_r            # Right Option
 HOLD_THRESHOLD = 0.22                  # seconds — anything shorter is not a hold
+STREAM_INTERVAL = 0.9                  # seconds between live-preview passes
 
 CONFIG_PATH = os.path.expanduser("~/.penny/config.json")
 STATE_PATH = os.path.expanduser("~/.penny/dictate.state")
+TRANSCRIPT_PATH = os.path.expanduser("~/.penny/dictate.transcript")
 
 
 def whisper_model_from_config() -> str:
@@ -45,19 +47,25 @@ def whisper_model_from_config() -> str:
         return "distil-large-v3"
 
 
-def write_state(value: str) -> None:
-    """Publish the current daemon state for the Swift overlay to pick up.
-
-    Writes are atomic via rename so the watcher never sees a partial value.
-    """
+def _atomic_write(path: str, value: str) -> None:
     try:
-        os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
-        tmp = STATE_PATH + ".tmp"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
         with open(tmp, "w") as fh:
             fh.write(value)
-        os.replace(tmp, STATE_PATH)
+        os.replace(tmp, path)
     except OSError:
         pass
+
+
+def write_state(value: str) -> None:
+    """Publish the current daemon state for the Swift overlay to pick up."""
+    _atomic_write(STATE_PATH, value)
+
+
+def write_transcript(value: str) -> None:
+    """Publish the latest in-progress transcript for the Swift overlay."""
+    _atomic_write(TRANSCRIPT_PATH, value)
 
 
 # ── State shared across threads ──────────────────────────────────────────────
@@ -69,22 +77,81 @@ hold_timer: threading.Timer | None = None
 model = None
 state_lock = threading.Lock()
 
+# Live preview worker that runs while the user is holding the key. It
+# transcribes the audio collected so far every STREAM_INTERVAL seconds and
+# publishes the running text to ~/.penny/dictate.transcript so the Swift
+# overlay can render it. We deliberately do not type into the user's app
+# during recording — Right Option being physically held would turn every
+# synthesized keystroke into an Option-combo character.
+stream_stop = threading.Event()
+stream_thread: threading.Thread | None = None
+
 
 # ── Recording lifecycle ──────────────────────────────────────────────────────
 
 def begin_recording() -> None:
-    global recording, audio_chunks
+    global recording, audio_chunks, stream_thread
     with state_lock:
         if recording:
             return
         recording = True
         audio_chunks = []
+    write_transcript("")
     write_state("listening")
     print("● Recording", flush=True)
+
+    # Start the live preview loop. It owns its own stop event so end_and_
+    # transcribe can shut it down cleanly without a join from inside the
+    # state lock.
+    stream_stop.clear()
+    stream_thread = threading.Thread(target=_streaming_loop, daemon=True)
+    stream_thread.start()
+
+
+def _streaming_loop() -> None:
+    """Re-transcribes the in-progress recording every STREAM_INTERVAL
+    seconds and writes the latest text to the transcript file. Uses a
+    fast inference path (beam_size=1, no VAD pre-filter) since the goal
+    is responsiveness, not maximum accuracy — the final pass on release
+    uses the slower, more careful settings."""
+    last_text = ""
+    while not stream_stop.wait(STREAM_INTERVAL):
+        with state_lock:
+            if not recording:
+                return
+            chunks = list(audio_chunks)
+        if not chunks:
+            continue
+
+        audio = np.concatenate(chunks, axis=0).flatten()
+        duration = audio.size / SAMPLE_RATE
+        if duration < 0.5:
+            continue
+
+        try:
+            segments, _ = model.transcribe(
+                audio,
+                beam_size=1,
+                vad_filter=False,
+                without_timestamps=True,
+                condition_on_previous_text=False,
+            )
+            text = " ".join(s.text.strip() for s in segments).strip()
+        except Exception as exc:
+            print(f"streaming transcribe failed: {exc}", flush=True)
+            continue
+
+        if text and text != last_text:
+            last_text = text
+            write_transcript(text)
 
 
 def end_and_transcribe() -> None:
     global recording, audio_chunks
+    # Tell the streaming loop to stop and wait briefly so it doesn't race
+    # the final transcription pass for the inference engine.
+    stream_stop.set()
+
     with state_lock:
         if not recording:
             return
@@ -93,12 +160,14 @@ def end_and_transcribe() -> None:
         audio_chunks = []
 
     if not chunks:
+        write_transcript("")
         write_state("idle")
         return
 
     audio = np.concatenate(chunks, axis=0).flatten()
     if audio.size / SAMPLE_RATE < 0.3:
         print("(too short, ignoring)", flush=True)
+        write_transcript("")
         write_state("idle")
         return
 
@@ -123,6 +192,7 @@ def end_and_transcribe() -> None:
         print(f"→ {text}", flush=True)
         paste_text(text)
     finally:
+        write_transcript("")
         write_state("idle")
 
 

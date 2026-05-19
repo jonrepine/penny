@@ -1,24 +1,36 @@
 import AppKit
 
-/// Renders the small "Listening" and "Transcribing" overlays during a
-/// dictation session. The dictation daemon lives in a separate Python
-/// process; it writes its current state to ~/.penny/dictate.state and
-/// this class watches that file with a low-frequency poll. Cheap, no
-/// extra dependencies, no IPC permissions to deal with.
+/// Renders the "Listening" and "Transcribing" overlays during dictation.
+///
+/// The dictation daemon lives in a separate Python process and publishes
+/// state to small files in `~/.penny/`:
+///
+///   - `dictate.state` is one of `listening` / `transcribing` / `idle`.
+///   - `dictate.transcript` is the running text Whisper has produced so far
+///     while the user is still holding the key.
+///
+/// We poll both files on a fast timer (100 ms for state, same loop reads
+/// the transcript) and render them. The transcript pane gives the user a
+/// live view of what's being captured without us having to type into their
+/// app during the hold (the Right Option modifier being physically held
+/// would garble any synthesized keystrokes).
 final class DictationOverlay {
     private static let statePath: String = (NSHomeDirectory() as NSString)
         .appendingPathComponent(".penny/dictate.state")
+    private static let transcriptPath: String = (NSHomeDirectory() as NSString)
+        .appendingPathComponent(".penny/dictate.transcript")
 
     private var panel: NSPanel?
+    private var transcriptLabel: NSTextField?
     private var pollTimer: Timer?
     private var lastState: String = ""
+    private var lastTranscript: String = ""
 
     init() {
         ensureStateFileExists()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             self?.tick()
         }
-        // Run once immediately so we don't wait 100 ms on startup.
         tick()
     }
 
@@ -31,19 +43,30 @@ final class DictationOverlay {
     }
 
     private func tick() {
-        guard let text = try? String(contentsOfFile: Self.statePath, encoding: .utf8) else {
-            return
-        }
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value == lastState { return }
-        lastState = value
+        guard let raw = try? String(contentsOfFile: Self.statePath, encoding: .utf8) else { return }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            switch value {
-            case "listening":   self.show(.listening)
-            case "transcribing": self.show(.transcribing)
-            default:             self.hide()
+        if value != lastState {
+            lastState = value
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                switch value {
+                case "listening":    self.show(.listening)
+                case "transcribing": self.show(.transcribing)
+                default:              self.hide()
+                }
+            }
+        }
+
+        // While listening, also pick up transcript updates and feed them
+        // into the live preview label.
+        if value == "listening", let transcript = try? String(contentsOfFile: Self.transcriptPath, encoding: .utf8) {
+            let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed != lastTranscript {
+                lastTranscript = trimmed
+                DispatchQueue.main.async { [weak self] in
+                    self?.transcriptLabel?.stringValue = trimmed
+                }
             }
         }
     }
@@ -54,9 +77,74 @@ final class DictationOverlay {
 
     private func show(_ mode: Mode) {
         hide()
+        lastTranscript = ""
 
+        switch mode {
+        case .listening:   showListening()
+        case .transcribing: showTranscribing()
+        }
+    }
+
+    private func showListening() {
+        let width: CGFloat = 380
+        let headerHeight: CGFloat = 38
+        let transcriptHeight: CGFloat = 64
+        let totalHeight = headerHeight + transcriptHeight
+
+        let p = makePanel(width: width, height: totalHeight)
+        let content = Style.makeMaterialView(frame: NSRect(x: 0, y: 0, width: width, height: totalHeight))
+
+        // Header row: pulsing red dot + "Listening" label.
+        content.addSubview(makePulsingDot(at: NSPoint(x: 18, y: totalHeight - headerHeight + 13)))
+        let header = Style.plainLabel("Listening", size: 12, weight: .medium, color: .labelColor)
+        header.frame = NSRect(x: 38, y: totalHeight - headerHeight + 11, width: 320, height: 16)
+        content.addSubview(header)
+
+        // Transcript pane: wrapping label below the header. Updates in
+        // place as the streaming worker publishes new text.
+        let transcript = NSTextField(wrappingLabelWithString: "")
+        transcript.font = NSFont.systemFont(ofSize: 12, weight: .regular)
+        transcript.textColor = .secondaryLabelColor
+        transcript.preferredMaxLayoutWidth = width - 36
+        transcript.maximumNumberOfLines = 3
+        transcript.lineBreakMode = .byTruncatingHead
+        transcript.frame = NSRect(x: 18, y: 8, width: width - 36, height: transcriptHeight - 12)
+        transcript.placeholderString = "Talk now…"
+        content.addSubview(transcript)
+        transcriptLabel = transcript
+
+        p.contentView = content
+        p.orderFrontRegardless()
+        panel = p
+    }
+
+    private func showTranscribing() {
         let width: CGFloat = 220
         let height: CGFloat = 38
+        let p = makePanel(width: width, height: height)
+        let content = Style.makeMaterialView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+
+        for index in 0..<3 {
+            content.addSubview(makeBouncingDot(at: NSPoint(x: 18 + CGFloat(index) * 11, y: 16),
+                                               offset: Double(index) * 0.18))
+        }
+        let label = Style.plainLabel("Transcribing", size: 12, weight: .medium, color: .labelColor)
+        label.frame = NSRect(x: 60, y: 11, width: 150, height: 16)
+        content.addSubview(label)
+
+        p.contentView = content
+        p.orderFrontRegardless()
+        panel = p
+    }
+
+    private func hide() {
+        panel?.orderOut(nil)
+        panel?.close()
+        panel = nil
+        transcriptLabel = nil
+    }
+
+    private func makePanel(width: CGFloat, height: CGFloat) -> NSPanel {
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let frame = screen.visibleFrame
         let origin = NSPoint(x: frame.midX - width / 2, y: frame.minY + 100)
@@ -68,35 +156,7 @@ final class DictationOverlay {
             defer: false
         )
         Style.configureOverlayPanel(p)
-
-        let content = Style.makeMaterialView(frame: NSRect(x: 0, y: 0, width: width, height: height))
-
-        switch mode {
-        case .listening:
-            content.addSubview(makePulsingDot(at: NSPoint(x: 16, y: 13)))
-            let label = Style.plainLabel("Listening", size: 12, weight: .medium, color: .labelColor)
-            label.frame = NSRect(x: 36, y: 11, width: 180, height: 16)
-            content.addSubview(label)
-
-        case .transcribing:
-            for index in 0..<3 {
-                content.addSubview(makeBouncingDot(at: NSPoint(x: 18 + CGFloat(index) * 11, y: 16),
-                                                   offset: Double(index) * 0.18))
-            }
-            let label = Style.plainLabel("Transcribing", size: 12, weight: .medium, color: .labelColor)
-            label.frame = NSRect(x: 60, y: 11, width: 150, height: 16)
-            content.addSubview(label)
-        }
-
-        p.contentView = content
-        p.orderFrontRegardless()
-        panel = p
-    }
-
-    private func hide() {
-        panel?.orderOut(nil)
-        panel?.close()
-        panel = nil
+        return p
     }
 
     // MARK: Animated subviews
@@ -135,5 +195,4 @@ final class DictationOverlay {
         dot.layer?.add(anim, forKey: "bounce")
         return dot
     }
-
 }
