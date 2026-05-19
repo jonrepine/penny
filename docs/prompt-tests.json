@@ -1,0 +1,218 @@
+[
+  {
+    "mode": 1,
+    "input": "How many chickensssssssssssss can a chicken chicken when it has two eggs and a chicken?",
+    "expected_behaviour": "edited",
+    "notes": "Stretched plural typo should become chickens; grammar and odd phrasing stay."
+  },
+  {
+    "mode": 1,
+    "input": "I definately recieved the adress.",
+    "expected_behaviour": "edited",
+    "notes": "Standard misspellings only."
+  },
+  {
+    "mode": 1,
+    "input": "this is fine",
+    "expected_behaviour": "unchanged",
+    "notes": "No capitalization or punctuation changes in spelling mode."
+  },
+  {
+    "mode": 1,
+    "input": "The deploy touched CoreGraphQL and user_id_map.",
+    "expected_behaviour": "unchanged",
+    "notes": "Do not alter product/code-like terms."
+  },
+  {
+    "mode": 1,
+    "input": "soooo we are live",
+    "expected_behaviour": "edited",
+    "notes": "Obvious stretched typo should be normalized, but wording remains casual."
+  },
+  {
+    "mode": 2,
+    "input": "she dont know where the files is",
+    "expected_behaviour": "edited",
+    "notes": "Mechanical agreement errors should be fixed."
+  },
+  {
+    "mode": 2,
+    "input": "i went to the store and bought milk",
+    "expected_behaviour": "edited",
+    "notes": "Capitalization and likely terminal punctuation are in scope."
+  },
+  {
+    "mode": 2,
+    "input": "already correct.",
+    "expected_behaviour": "unchanged",
+    "notes": "Exact no-change path for mechanically correct text."
+  },
+  {
+    "mode": 2,
+    "input": "can you send this to sam",
+    "expected_behaviour": "edited",
+    "notes": "Question capitalization and punctuation may be fixed without rewriting."
+  },
+  {
+    "mode": 2,
+    "input": "yesssss, it works",
+    "expected_behaviour": "edited",
+    "notes": "Stretched typo plus punctuation/capitalization if needed."
+  },
+  {
+    "mode": 3,
+    "input": "What is the biggest building in the world?",
+    "expected_behaviour": "unchanged",
+    "notes": "Must not paste a refusal; unchanged is acceptable for a clear question."
+  },
+  {
+    "mode": 3,
+    "input": "I just wanted to quickly check in and see if maybe you had any updates on this.",
+    "expected_behaviour": "edited",
+    "notes": "Cut filler while preserving a gentle tone."
+  },
+  {
+    "mode": 3,
+    "input": "ship it lol",
+    "expected_behaviour": "unchanged",
+    "notes": "Short casual voice should not be over-edited."
+  },
+  {
+    "mode": 3,
+    "input": "The reason why this is happening is because the token is expired.",
+    "expected_behaviour": "edited",
+    "notes": "Tighten redundant wording without adding detail."
+  },
+  {
+    "mode": 3,
+    "input": "I am not sure, but I think this could be risky.",
+    "expected_behaviour": "unchanged",
+    "notes": "Preserve intentional uncertainty rather than making it more assertive."
+  },
+  {
+    "mode": 4,
+    "input": "Could you please review the payment links pull request when you have a moment?",
+    "expected_behaviour": "restyled",
+    "notes": "Slack style: succinct, warm, lowercase, no final period."
+  },
+  {
+    "mode": 4,
+    "input": "can you take a look at the PR when you get a chance 🙏",
+    "expected_behaviour": "unchanged",
+    "notes": "Already close to target Slack style."
+  },
+  {
+    "mode": 4,
+    "input": "The deploy is broken and I need help now.",
+    "expected_behaviour": "restyled",
+    "notes": "Warm Slack rewrite must preserve that deploy is broken."
+  },
+  {
+    "mode": 4,
+    "input": "Hello team, I would like to inform you that the demo has moved to 3pm.",
+    "expected_behaviour": "restyled",
+    "notes": "Remove formal greeting and make concise without inventing context."
+  },
+  {
+    "mode": 5,
+    "input": "ask sarah to send the invoice by friday and mention we need it for month end",
+    "expected_behaviour": "restyled",
+    "notes": "Email body with warm polish and final Cheers, preserving Sarah, invoice, Friday, month end."
+  },
+  {
+    "mode": 5,
+    "input": "Thanks for the notes. I will update the doc and send it back tomorrow.",
+    "expected_behaviour": "restyled",
+    "notes": "Email format with sign-off; do not add extra commitments."
+  },
+  {
+    "mode": 5,
+    "input": "Hi Alex, looping you in on the migration. We are blocked on credentials.",
+    "expected_behaviour": "restyled",
+    "notes": "Keep recipient and blocker; end with Cheers,."
+  },
+  {
+    "mode": 5,
+    "input": "Need the signed agreement.",
+    "expected_behaviour": "restyled",
+    "notes": "Can use a bracketed placeholder if a greeting is needed; do not invent recipient or deadline."
+  },
+  {
+    "mode": 6,
+    "input": "Activation dropped 8% after the onboarding change. Support tickets mention missing bank names. Rollback is safest.",
+    "expected_behaviour": "restyled",
+    "notes": "Notion report with supplied finding, data point, evidence, and recommendation only."
+  },
+  {
+    "mode": 6,
+    "input": "Q1 was strong. Revenue grew. Churn was flat. Risk: onboarding is still manual.",
+    "expected_behaviour": "restyled",
+    "notes": "Layered report without inventing numbers."
+  },
+  {
+    "mode": 6,
+    "input": "No clear signal yet.",
+    "expected_behaviour": "restyled",
+    "notes": "Minimal report; do not fabricate sections."
+  },
+  {
+    "mode": 6,
+    "input": "Finding: users complete checkout faster. Evidence: fewer support pings. Next: monitor for a week.",
+    "expected_behaviour": "restyled",
+    "notes": "Preserve caveat and monitoring period."
+  },
+  {
+    "mode": 7,
+    "input": "We need to finish the copy, send it to legal, and publish the landing page after approval.",
+    "expected_behaviour": "restyled",
+    "notes": "Split discrete actions into bullets."
+  },
+  {
+    "mode": 7,
+    "input": "- Finish copy\n- Send to legal\n- Publish after approval",
+    "expected_behaviour": "unchanged",
+    "notes": "Already a clean bullet list."
+  },
+  {
+    "mode": 7,
+    "input": "The API is slow because the cache is cold. The bigger issue is that retries amplify the load.",
+    "expected_behaviour": "restyled",
+    "notes": "Two ideas, no invented fix."
+  },
+  {
+    "mode": 7,
+    "input": "First we migrate read traffic. Then we migrate writes. If error rate rises, roll back.",
+    "expected_behaviour": "restyled",
+    "notes": "Preserve sequence and condition."
+  },
+  {
+    "mode": 8,
+    "input": "make this app look more macbook like",
+    "expected_behaviour": "restyled",
+    "notes": "Short scoped prompt with placeholders; no invented Big Sur, SF Pro, or CSS framework."
+  },
+  {
+    "mode": 8,
+    "input": "What is the biggest building in the world?",
+    "expected_behaviour": "restyled",
+    "notes": "Rewrite as a prompt, not answer the question."
+  },
+  {
+    "mode": 8,
+    "input": "write me a launch plan for our new feature",
+    "expected_behaviour": "restyled",
+    "notes": "Add useful prompt structure with bracketed feature context, no invented feature."
+  },
+  {
+    "mode": 8,
+    "input": "summarize this",
+    "expected_behaviour": "restyled",
+    "notes": "Use placeholder for missing text and desired format."
+  },
+  {
+    "mode": 8,
+    "input": "debug why this SQL query is slow and suggest fixes",
+    "expected_behaviour": "restyled",
+    "notes": "Ask LLM to analyze before recommending; no actual debugging."
+  }
+]

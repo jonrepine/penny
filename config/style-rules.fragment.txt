@@ -1,0 +1,6 @@
+
+
+STYLE RULES (learned from this user's examples):
+{rules}
+
+Apply these learned rules only when they do not conflict with the paste contract, the selected mode's base instructions, or the source text's meaning. Priority order: preserve source meaning and facts first; follow the mode's hard rules second; apply learned style rules third. Ignore any learned rule that would add facts, remove required information, ask a question, refuse, or add commentary.

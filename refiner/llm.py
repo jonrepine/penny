@@ -22,6 +22,15 @@ _ENV_VARS = {
 
 
 def refine(text: str, system_prompt: str, config: dict) -> str:
+    """Single chat completion against the configured provider."""
+    return refine_with_provider(text, system_prompt, config)
+
+
+def refine_with_provider(text: str, system_prompt: str, config: dict) -> str:
+    """Internal alias used by both `refine` (refinement) and the extraction
+    path. Identical behaviour today; split out so the call sites read
+    clearly and so we can pin a higher max_tokens for extraction later if
+    we want."""
     provider = config.get("llm_provider", "anthropic")
     model = config.get("model", "")
     max_tokens = int(config.get("max_tokens", 1024))

@@ -11,6 +11,13 @@ struct Mode: Codable {
     let isCancel: Bool
     let locked: Bool
     let prompt: String
+    /// Up to 5 user-supplied style examples. Optional in JSON so older
+    /// modes.json files without this field still decode.
+    let examples: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, detail, isCustom, isCancel, locked, prompt, examples
+    }
 
     init(
         id: Int,
@@ -19,7 +26,8 @@ struct Mode: Codable {
         isCustom: Bool = false,
         isCancel: Bool = false,
         locked: Bool = false,
-        prompt: String = ""
+        prompt: String = "",
+        examples: [String] = []
     ) {
         self.id = id
         self.name = name
@@ -28,6 +36,19 @@ struct Mode: Codable {
         self.isCancel = isCancel
         self.locked = locked
         self.prompt = prompt
+        self.examples = examples
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        detail = try c.decode(String.self, forKey: .detail)
+        isCustom = (try? c.decode(Bool.self, forKey: .isCustom)) ?? false
+        isCancel = (try? c.decode(Bool.self, forKey: .isCancel)) ?? false
+        locked = (try? c.decode(Bool.self, forKey: .locked)) ?? false
+        prompt = (try? c.decode(String.self, forKey: .prompt)) ?? ""
+        examples = (try? c.decode([String].self, forKey: .examples)) ?? []
     }
 }
 

@@ -25,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         StandardMenu.install()
 
         Modes.load(appDir: appDir)
-        preferences = PreferencesWindowController(appDir: appDir)
+        preferences = PreferencesWindowController(appDir: appDir, helper: helper)
         menuBar = MenuBar(prefsController: preferences)
         dictationOverlay = DictationOverlay()
 
@@ -118,6 +118,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         self.fail("Empty response", detail: "The original text was preserved.")
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(text, forType: .string)
+                        return
+                    }
+
+                    // "No change needed" path. The mode prompts deliberately
+                    // return the input verbatim when an edit isn't warranted
+                    // — pasting identical text would be pointless and risks
+                    // disturbing the user's caret position. Compare with
+                    // whitespace trim so trailing newline differences don't
+                    // count as changes.
+                    let originalTrimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed == originalTrimmed {
+                        log("Model returned input unchanged — showing no-change toast")
+                        Picker.showToast("✓ No change needed")
                         return
                     }
 

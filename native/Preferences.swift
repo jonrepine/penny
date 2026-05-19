@@ -16,6 +16,8 @@ final class PreferencesWindowController: NSWindowController {
     private static let contentWidth: CGFloat = documentWidth - outerInset * 2
 
     private let appDir: String
+    private let helper: RefinerHelper
+    private var styleEditor: StyleEditorWindowController?
     private var config: AppConfig
 
     // Provider section
@@ -33,8 +35,9 @@ final class PreferencesWindowController: NSWindowController {
     private var modesTable: NSTableView!
     private var statusLabel: NSTextField!
 
-    init(appDir: String) {
+    init(appDir: String, helper: RefinerHelper) {
         self.appDir = appDir
+        self.helper = helper
         self.config = ConfigStore.load(appDir: appDir)
 
         let window = OverlayPanel(
@@ -593,9 +596,11 @@ final class PreferencesWindowController: NSWindowController {
         buttonRow.spacing = 8
         let addButton = NSButton(title: "Add…", target: self, action: #selector(addMode))
         let editButton = NSButton(title: "Edit…", target: self, action: #selector(editMode))
+        let stylesButton = NSButton(title: "Examples & rules…", target: self, action: #selector(editStyleExamples))
         let deleteButton = NSButton(title: "Delete", target: self, action: #selector(deleteMode))
         buttonRow.addArrangedSubview(addButton)
         buttonRow.addArrangedSubview(editButton)
+        buttonRow.addArrangedSubview(stylesButton)
         buttonRow.addArrangedSubview(deleteButton)
         stack.addArrangedSubview(buttonRow)
 
@@ -629,6 +634,22 @@ final class PreferencesWindowController: NSWindowController {
             updated[row] = edited
             self.save(modes: updated)
         }
+    }
+
+    @objc private func editStyleExamples() {
+        let row = modesTable.selectedRow
+        guard row >= 0, row < Modes.all.count else {
+            Picker.showToast("Pick a mode first", duration: 1.4)
+            return
+        }
+        let mode = Modes.all[row]
+        if mode.isCancel || mode.isCustom {
+            Picker.showToast("This mode doesn’t take style examples", duration: 1.6)
+            return
+        }
+        styleEditor = StyleEditorWindowController(mode: mode, helper: helper)
+        styleEditor?.showWindow(nil)
+        styleEditor?.window?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func deleteMode() {
