@@ -2,105 +2,47 @@
 
 **Are you lazy? Penny is for you.**
 
-You hold Right Option and talk. Penny types what you said. You select something
-you wrote — anywhere — double-tap Right Option, pick a mode, and Penny rewrites
-it cleaner. That's the whole pitch.
+Hold Right Option and talk → Penny types what you said. Select text anywhere
+→ double-tap Right Option → pick a mode → Penny rewrites it in place.
 
-It's the menu-bar app that gives you Apple-style dictation that actually works,
-and one-tap rewriting in every text field on your Mac, without joining anyone's
-ecosystem.
+That's it. Menu-bar app, no ecosystem, works in every text field on your Mac.
 
 ---
 
 ## What Penny does
 
-Two shortcuts. One key. Every app.
+Two shortcuts, one key, every app.
 
-### 🎙️ Hold Right Option → dictate
+- **Hold Right Option → dictate.** Penny shows a "Listening" indicator while
+  you talk, transcribes locally via `faster-whisper` when you release, pastes
+  the text where your cursor is. Audio never leaves your Mac.
+- **Double-tap Right Option → refine.** A picker pops next to your cursor
+  with 9 modes — Spelling, Grammar, Improve Writing, Slack, Email, Report,
+  Bullet Points, Improve Prompt, Custom — plus Cancel. Pick one, your
+  selection gets rewritten in place.
 
-Press and hold the **Right Option** key. A small "Listening" indicator appears.
-Talk normally. Release the key. A "Transcribing" indicator briefly appears, and
-your speech gets pasted wherever your cursor is.
-
-Transcription runs entirely on your Mac via `faster-whisper`. Your audio never
-touches the network.
-
-### ✍️ Double-tap Right Option → refine
-
-Select some text — *anywhere* — and double-tap **Right Option**. A small picker
-appears next to your cursor. Pick a mode, your selection gets rewritten in place:
-
-| # | Mode | What it does |
-|---|------|--------------|
-| 1 | Spelling only | Fix misspellings. Nothing else. |
-| 2 | Grammar | Fix spelling, grammar, punctuation. Keep phrasing. |
-| 3 | Improve Writing | Tighter, clearer, same meaning. Cuts filler. |
-| 4 | Slack | Succinct, warm, lowercase, no sign-off. |
-| 5 | Email | Polished, warm opener, ends with "Cheers,". |
-| 6 | Report | Notion-formatted with headings + emojis. |
-| 7 | Bullet Points | Scannable list of distinct ideas. |
-| 8 | Improve Prompt | Rewrites your input as a stronger LLM prompt. |
-| 9 | Custom… | Type a one-off instruction for this run. |
-| 0 | Cancel | Leave the text unchanged. |
-
-Press the digit or click the row. Esc cancels.
-
-### Works *anywhere* you can type
-
-This is the bit that matters. Penny is not a plugin, not a Slack app, not a
-Chrome extension. It sits in your menu bar and operates on whatever text field
-your cursor is in.
-
-That means it works in:
-
-> Cursor · VS Code · Discord · Slack · Apple Mail · Notion · Linear · Figma
-> comments · Safari address bars · Notes · Messages · Spotlight · Reminders
-> · Outlook · WhatsApp Desktop · ChatGPT's web UI · your terminal · anywhere
-> macOS gives you a cursor.
-
-No integrations to configure, no per-app accounts, no "connect to Penny"
-buttons. **Ecosystem-agnostic, app-agnostic, input-agnostic.** If macOS lets
-you type into it, Penny works there.
+It works in Cursor, VS Code, Discord, Slack, Mail, Notion, Linear, Safari,
+Notes, your terminal — anywhere macOS gives you a cursor. Nothing to integrate,
+no per-app accounts, no plugins. **Ecosystem-, app-, and input-agnostic.**
 
 ---
 
 ## You stay in control
 
-Penny runs entirely on your Mac. Three things matter:
-
-- **Dictation is fully local.** Whisper runs inside Penny's own Python venv via
-  `faster-whisper`. The audio never leaves your machine.
-- **Refinement only knows your API key.** When you choose to refine, Penny
-  sends the selection plus the chosen system prompt directly to the LLM
-  provider — Anthropic, OpenAI, or Google Gemini — authenticated with the API
-  key you've stored. The provider sees the request the same way they would if
-  you'd typed it into their playground. There is **no Penny server**, **no
-  Penny account**, **no Penny telemetry**.
-- **No phone-home.** Penny doesn't track usage, doesn't auto-update, doesn't
-  call any Penny-owned endpoint. The source code on GitHub is the entire
-  product.
+- **Dictation is local.** Whisper runs in Penny's own Python venv. Your audio
+  never touches the network.
+- **Refinement uses your key, nothing else.** Penny sends the selection +
+  system prompt directly to your chosen provider (Anthropic, OpenAI, or Gemini)
+  with the API key you've stored in macOS Keychain. No Penny server, no Penny
+  account, no Penny telemetry.
 
 ### Great for organisations
 
-This makes Penny easy to deploy inside a company:
-
-- **Your AI policy is the AI policy.** Configure the team's provider key to
-  point at a zero-data-retention or enterprise tier (Anthropic's no-training
-  endpoint, OpenAI's enterprise zero-retention, Google's Vertex AI commercial
-  terms, etc.) and that policy applies to every Penny invocation, automatically.
-  There's no separate "Penny Terms of Service" layered on top of yours.
-- **The API key is the only thing your provider knows about Penny.** It's the
-  same data path as a developer hitting the provider's API from a terminal.
-- **Auditable in a sitting.** The entire LLM call lives in `refiner/llm.py`
-  (under 100 lines). The dictation path lives in `dictate/whisper-dictate`.
-  Every shortcut, every prompt, every config value is in this repo.
-- **Universal text upgrade.** Knowledge workers spend most of the day in five
-  to fifteen text inputs across Slack, email, documents, code, tickets, calendar
-  invites. Penny upgrades all of them at once, without IT having to integrate
-  Penny into any of them.
-
-If you'd like Penny rolled out at your org and need help with the policy
-conversation, the code is MIT-licensed — fork it, audit it, ship it internally.
+Point the provider key at your company's zero-data-retention or enterprise
+tier (Anthropic's no-training endpoint, OpenAI Enterprise, Vertex AI, etc.) and
+that policy applies to every Penny invocation — same data path as your devs
+already use. The whole LLM call is `refiner/llm.py` (< 100 lines); audit in a
+sitting, fork it, ship it internally. MIT-licensed.
 
 ---
 
