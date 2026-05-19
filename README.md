@@ -35,6 +35,13 @@ no per-app accounts, no plugins. **Ecosystem-, app-, and input-agnostic.**
 > Dictation is just one fast way to *get* text into a field. Refine makes any
 > text better, no matter where it came from. Use either, both, or one without
 > the other.
+>
+> **No API key needed for dictation.** Whisper runs locally on your Mac —
+> if dictation is all you want, you can install Penny and never enter a key.
+>
+> **No dictation model needed for refinement.** If you only want the picker,
+> you can ignore the Dictation section entirely and never download a
+> Whisper model.
 
 ---
 
