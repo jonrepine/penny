@@ -30,21 +30,31 @@ from pynput import keyboard
 SAMPLE_RATE = 16000
 HOTKEY = keyboard.Key.alt_r            # Right Option
 HOLD_THRESHOLD = 0.22                  # seconds — anything shorter is not a hold
-STREAM_INTERVAL = 0.9                  # seconds between live-preview passes
+STREAM_INTERVAL = 0.4                  # seconds between live-preview passes
 
 CONFIG_PATH = os.path.expanduser("~/.penny/config.json")
 STATE_PATH = os.path.expanduser("~/.penny/dictate.state")
 TRANSCRIPT_PATH = os.path.expanduser("~/.penny/dictate.transcript")
 
 
-def whisper_model_from_config() -> str:
-    """Read the chosen Whisper model from the user config. Falls back to
-    distil-large-v3 if config is missing or malformed."""
+def _read_config() -> dict:
     try:
         with open(CONFIG_PATH) as fh:
-            return json.load(fh).get("whisper_model", "distil-large-v3")
+            return json.load(fh)
     except (OSError, json.JSONDecodeError):
-        return "distil-large-v3"
+        return {}
+
+
+def whisper_model_from_config() -> str:
+    """Final-pass model: high quality, used for the paste on release."""
+    return _read_config().get("whisper_model", "distil-large-v3")
+
+
+def preview_model_from_config() -> str:
+    """Preview model: the fastest acceptable Whisper for the live overlay.
+    Defaults to tiny.en — it's enough to make the streaming feel
+    instantaneous without competing with the main model for compute."""
+    return _read_config().get("whisper_preview_model", "tiny.en")
 
 
 def _atomic_write(path: str, value: str) -> None:
@@ -74,7 +84,8 @@ recording = False
 audio_chunks: list[np.ndarray] = []
 press_start: float | None = None
 hold_timer: threading.Timer | None = None
-model = None
+model = None         # high-quality model used for the final paste
+preview_model = None # smaller, fast model used for the live preview loop
 state_lock = threading.Lock()
 
 # Live preview worker that runs while the user is holding the key. It
@@ -129,7 +140,8 @@ def _streaming_loop() -> None:
             continue
 
         try:
-            segments, _ = model.transcribe(
+            engine = preview_model or model
+            segments, _ = engine.transcribe(
                 audio,
                 beam_size=1,
                 vad_filter=False,
@@ -267,11 +279,26 @@ def on_release(key: keyboard.Key) -> None:
 # ── Entry point ──────────────────────────────────────────────────────────────
 
 def load_model() -> None:
-    global model
-    size = whisper_model_from_config()
-    print(f"Loading Whisper model: {size} (first run may download)…", flush=True)
+    """Load both models. The final-pass model loads first so dictation is
+    usable as soon as possible; the preview model loads after and is
+    optional — if it fails to load the streaming loop falls back to the
+    final-pass model on a lower beam_size."""
+    global model, preview_model
     from faster_whisper import WhisperModel
-    model = WhisperModel(size, device="cpu", compute_type="int8")
+
+    final_size = whisper_model_from_config()
+    print(f"Loading final model: {final_size}…", flush=True)
+    model = WhisperModel(final_size, device="cpu", compute_type="int8")
+
+    preview_size = preview_model_from_config()
+    if preview_size and preview_size != final_size:
+        try:
+            print(f"Loading preview model: {preview_size}…", flush=True)
+            preview_model = WhisperModel(preview_size, device="cpu", compute_type="int8")
+        except Exception as exc:
+            print(f"Preview model {preview_size!r} failed to load: {exc}; falling back to {final_size}", flush=True)
+            preview_model = None
+
     print("Penny dictation ready. Hold Right ⌥ to dictate.", flush=True)
 
 
