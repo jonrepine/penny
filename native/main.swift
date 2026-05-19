@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBar!
     private var preferences: PreferencesWindowController!
     private var onboarding: OnboardingWindowController?
+    private var dictationOverlay: DictationOverlay!
     private var isProcessing = false
     private var lastRefinedText: String?
 
@@ -26,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Modes.load(appDir: appDir)
         preferences = PreferencesWindowController(appDir: appDir)
         menuBar = MenuBar(prefsController: preferences)
+        dictationOverlay = DictationOverlay()
 
         detector = DoubleTapDetector { [weak self] in
             self?.trigger()

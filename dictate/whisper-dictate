@@ -31,6 +31,23 @@ MODEL_SIZE = os.environ.get("PENNY_WHISPER_MODEL", "distil-large-v3")
 HOTKEY = keyboard.Key.alt_r            # Right Option
 HOLD_THRESHOLD = 0.22                  # seconds — anything shorter is not a hold
 
+STATE_PATH = os.path.expanduser("~/.penny/dictate.state")
+
+
+def write_state(value: str) -> None:
+    """Publish the current daemon state for the Swift overlay to pick up.
+
+    Writes are atomic via rename so the watcher never sees a partial value.
+    """
+    try:
+        os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
+        tmp = STATE_PATH + ".tmp"
+        with open(tmp, "w") as fh:
+            fh.write(value)
+        os.replace(tmp, STATE_PATH)
+    except OSError:
+        pass
+
 
 # ── State shared across threads ──────────────────────────────────────────────
 
@@ -51,6 +68,7 @@ def begin_recording() -> None:
             return
         recording = True
         audio_chunks = []
+    write_state("listening")
     print("● Recording", flush=True)
 
 
@@ -64,31 +82,37 @@ def end_and_transcribe() -> None:
         audio_chunks = []
 
     if not chunks:
+        write_state("idle")
         return
 
     audio = np.concatenate(chunks, axis=0).flatten()
     if audio.size / SAMPLE_RATE < 0.3:
         print("(too short, ignoring)", flush=True)
+        write_state("idle")
         return
 
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fh:
-        tmp_path = fh.name
+    write_state("transcribing")
     try:
-        wav.write(tmp_path, SAMPLE_RATE, audio)
-        segments, _ = model.transcribe(tmp_path, beam_size=5, vad_filter=True)
-        text = " ".join(segment.text.strip() for segment in segments).strip()
-    finally:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fh:
+            tmp_path = fh.name
         try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+            wav.write(tmp_path, SAMPLE_RATE, audio)
+            segments, _ = model.transcribe(tmp_path, beam_size=5, vad_filter=True)
+            text = " ".join(segment.text.strip() for segment in segments).strip()
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
-    if not text:
-        print("(silence)", flush=True)
-        return
+        if not text:
+            print("(silence)", flush=True)
+            return
 
-    print(f"→ {text}", flush=True)
-    paste_text(text)
+        print(f"→ {text}", flush=True)
+        paste_text(text)
+    finally:
+        write_state("idle")
 
 
 def paste_text(text: str) -> None:
@@ -170,6 +194,7 @@ def load_model() -> None:
 
 
 def main() -> int:
+    write_state("idle")
     load_model()
     stream = sd.InputStream(
         samplerate=SAMPLE_RATE,
