@@ -276,29 +276,12 @@ enum Picker {
     }
 
     private static func configureOverlay(_ panel: NSPanel) {
-        panel.title = "Penny"
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.level = .screenSaver
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = true
+        Style.configureOverlayPanel(panel)
         panel.isMovableByWindowBackground = true
-        panel.isReleasedWhenClosed = false
     }
 
     private static func makeMaterialView(frame: NSRect) -> NSView {
-        let visualEffect = NSVisualEffectView(frame: frame)
-        visualEffect.material = .hudWindow
-        visualEffect.blendingMode = .behindWindow
-        visualEffect.state = .active
-        visualEffect.wantsLayer = true
-        visualEffect.layer?.cornerRadius = Metrics.cornerRadius
-        visualEffect.layer?.masksToBounds = true
-        visualEffect.layer?.borderWidth = 0.5
-        visualEffect.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
-        return visualEffect
+        Style.makeMaterialView(frame: frame, cornerRadius: Metrics.cornerRadius)
     }
 
     private static func makeLabel(
@@ -307,11 +290,7 @@ enum Picker {
         weight: NSFont.Weight,
         color: NSColor
     ) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = NSFont.systemFont(ofSize: size, weight: weight)
-        field.textColor = color
-        field.backgroundColor = .clear
-        return field
+        Style.plainLabel(text, size: size, weight: weight, color: color)
     }
 }
 

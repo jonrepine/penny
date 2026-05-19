@@ -49,20 +49,22 @@ final class MenuBar: NSObject {
     }
 
     private func renderIcon() -> NSImage {
-        let size = NSSize(width: 18, height: 18)
+        // A compact rounded glyph that reads cleanly as "P" in the menu bar
+        // even when the system renders the template at small sizes. Rendered
+        // as a template image so macOS handles light/dark inversion.
+        let size = NSSize(width: 16, height: 16)
         let image = NSImage(size: size, flipped: false) { rect in
-            let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)
+            let font = NSFont.systemFont(ofSize: 13, weight: .bold)
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: font,
-                .foregroundColor: NSColor.labelColor,
+                .foregroundColor: NSColor.black,
             ]
-            let text = NSAttributedString(string: "TR", attributes: attrs)
+            let text = NSAttributedString(string: "P", attributes: attrs)
             let textSize = text.size()
-            let origin = NSPoint(
+            text.draw(at: NSPoint(
                 x: (rect.width - textSize.width) / 2,
-                y: (rect.height - textSize.height) / 2
-            )
-            text.draw(at: origin)
+                y: (rect.height - textSize.height) / 2 - 1
+            ))
             return true
         }
         return image

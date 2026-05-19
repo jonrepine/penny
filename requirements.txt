@@ -1,5 +1,7 @@
+# LLM SDKs
 anthropic>=0.40.0
-keyring>=24.0.0
+openai>=1.40.0
+google-genai>=0.5.0
 
 # Dictation
 faster-whisper>=1.0.0

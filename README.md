@@ -9,7 +9,7 @@ Both work in any app — your editor, your browser, Notes, Slack, anywhere.
 
 ## What you need
 
-A Mac (anything from late 2020 onwards comfortably; macOS 13 Ventura or later), and one Anthropic API key for the refinement side. The dictation side runs locally and doesn't need a key.
+A Mac (anything from late 2020 onwards comfortably; macOS 13 Ventura or later), and an API key from one of **Anthropic**, **OpenAI**, or **Google Gemini** for the refinement side. The dictation side runs locally on your Mac and doesn't need any key or internet.
 
 ## Install
 
@@ -44,13 +44,28 @@ When macOS asks, click **Allow** (or **Always Allow**). For Accessibility and In
 
 ## Add your API key
 
-After permissions, click the small **P** icon in your menu bar (top right of the screen) → **Preferences…** → paste your Anthropic API key into the **API Key** field → **Save key**.
+Click the small **P** icon in your menu bar (top right of the screen) → **Preferences…** → **AI Provider** section.
 
-The key is stored in macOS Keychain. It never leaves your machine except when Penny sends a refinement request to Anthropic.
+1. Choose your provider (**Anthropic**, **OpenAI**, or **Google Gemini**). The "Get an API key…" button opens the right console page in your browser.
+2. Paste the key into the API Key field, click **Save key**.
+3. Pick a model. Each option has a one-line description so you can choose between speed and quality.
+
+The key is stored in the macOS Keychain. It only leaves your machine when Penny sends a refinement request to the chosen provider.
+
+## Choose a dictation model
+
+In **Preferences → Dictation (Whisper)** you'll see a list of Whisper models. Penny detects your RAM and picks a sensible default:
+
+- **≥ 16 GB RAM:** Distil Large v3 — multilingual, very accurate, fast on Apple Silicon (recommended).
+- **8–12 GB RAM:** Medium (English only) — high quality, ~1.5 GB.
+- **6 GB RAM:** Base (English only) — light, decent for short utterances.
+- **< 6 GB RAM:** Tiny (English only) — fastest, lowest accuracy.
+
+You can change the model later. The dictation daemon automatically restarts with the new model the first time you hold Right Option after the change.
 
 ## Heads-up about the first dictation
 
-The very first time you hold Right Option, Penny downloads its transcription model (~3 GB) into `~/.cache/huggingface/`. Be on Wi-Fi for that first hold; it takes a couple of minutes. Every hold after that is fast.
+The very first time you use a Whisper model, faster-whisper downloads it into `~/.cache/huggingface/`. The recommended Distil Large v3 is ~3 GB on first download; smaller models are 75 MB – 1.5 GB. Be on Wi-Fi the first time; every hold after that is fast.
 
 ## Daily use
 

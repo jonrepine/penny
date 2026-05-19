@@ -11,6 +11,7 @@ struct AppConfig: Codable {
     var saveHistory: Bool
     var historyLimit: Int
     var showToasts: Bool
+    var whisperModel: String
 
     enum CodingKeys: String, CodingKey {
         case llmProvider = "llm_provider"
@@ -20,6 +21,7 @@ struct AppConfig: Codable {
         case saveHistory = "save_history"
         case historyLimit = "history_limit"
         case showToasts = "show_notifications"
+        case whisperModel = "whisper_model"
     }
 
     static var defaults: AppConfig {
@@ -30,8 +32,43 @@ struct AppConfig: Codable {
             timeoutSeconds: 45,
             saveHistory: true,
             historyLimit: 50,
-            showToasts: true
+            showToasts: true,
+            whisperModel: WhisperModels.defaultForCurrentMac().id
         )
+    }
+
+    init(
+        llmProvider: String,
+        model: String,
+        maxTokens: Int,
+        timeoutSeconds: Int,
+        saveHistory: Bool,
+        historyLimit: Int,
+        showToasts: Bool,
+        whisperModel: String
+    ) {
+        self.llmProvider = llmProvider
+        self.model = model
+        self.maxTokens = maxTokens
+        self.timeoutSeconds = timeoutSeconds
+        self.saveHistory = saveHistory
+        self.historyLimit = historyLimit
+        self.showToasts = showToasts
+        self.whisperModel = whisperModel
+    }
+
+    /// Decoder that tolerates older configs missing newer keys.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let d = AppConfig.defaults
+        llmProvider     = (try? container.decode(String.self, forKey: .llmProvider))     ?? d.llmProvider
+        model           = (try? container.decode(String.self, forKey: .model))           ?? d.model
+        maxTokens       = (try? container.decode(Int.self,    forKey: .maxTokens))       ?? d.maxTokens
+        timeoutSeconds  = (try? container.decode(Int.self,    forKey: .timeoutSeconds))  ?? d.timeoutSeconds
+        saveHistory     = (try? container.decode(Bool.self,   forKey: .saveHistory))     ?? d.saveHistory
+        historyLimit    = (try? container.decode(Int.self,    forKey: .historyLimit))    ?? d.historyLimit
+        showToasts      = (try? container.decode(Bool.self,   forKey: .showToasts))      ?? d.showToasts
+        whisperModel    = (try? container.decode(String.self, forKey: .whisperModel))    ?? d.whisperModel
     }
 }
 

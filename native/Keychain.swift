@@ -1,25 +1,31 @@
 import Foundation
+import LocalAuthentication
 import Security
 
-/// Stores per-provider API keys in the macOS Keychain under service
-/// `penny`. The Python helper reads the same entries via the
-/// `keyring` package.
+/// Stores per-provider API keys in the macOS Keychain under service `penny`.
+/// One entry per provider (account = "anthropic" / "openai" / "gemini").
+///
+/// Only the Swift side touches Keychain. The Python helper reads keys from
+/// process environment variables that Swift passes when spawning it, so the
+/// user only sees the "Always Allow" Keychain prompt once.
 enum Keychain {
     private static let service = "penny"
 
+    /// Read a stored API key for `account`, returning nil if missing or if the
+    /// item's ACL doesn't include this binary. We block UI confirmation
+    /// prompts because there's no window to attach them to in an
+    /// accessory-policy daemon — without this, the call would hang forever.
     static func read(account: String) -> String? {
-        // `kSecUseAuthenticationUI: kSecUseAuthenticationUIFail` tells the
-        // Security framework to return an error instead of putting up a
-        // confirmation prompt when our app isn't on the item's ACL. Without
-        // this, the call blocks forever in an accessory-policy daemon
-        // because the prompt has no visible window to attach to.
+        let context = LAContext()
+        context.interactionNotAllowed = true
+
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true,
-            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
+            kSecUseAuthenticationContext as String: context,
         ]
 
         var result: AnyObject?
@@ -29,8 +35,7 @@ enum Keychain {
               let string = String(data: data, encoding: .utf8)
         else {
             if status == errSecInteractionNotAllowed || status == errSecAuthFailed {
-                log("Keychain.read: existing item for \(account) is not accessible to this build. " +
-                    "Delete and re-enter via Preferences.")
+                log("Keychain.read: existing item for \(account) is not accessible to this build. Delete and re-enter via Preferences.")
             }
             return nil
         }

@@ -67,14 +67,14 @@ final class DictationOverlay {
             backing: .buffered,
             defer: false
         )
-        configureOverlay(p)
+        Style.configureOverlayPanel(p)
 
-        let content = makeMaterial(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        let content = Style.makeMaterialView(frame: NSRect(x: 0, y: 0, width: width, height: height))
 
         switch mode {
         case .listening:
             content.addSubview(makePulsingDot(at: NSPoint(x: 16, y: 13)))
-            let label = makeLabel("Listening", size: 12, weight: .medium, color: .labelColor)
+            let label = Style.plainLabel("Listening", size: 12, weight: .medium, color: .labelColor)
             label.frame = NSRect(x: 36, y: 11, width: 180, height: 16)
             content.addSubview(label)
 
@@ -83,7 +83,7 @@ final class DictationOverlay {
                 content.addSubview(makeBouncingDot(at: NSPoint(x: 18 + CGFloat(index) * 11, y: 16),
                                                    offset: Double(index) * 0.18))
             }
-            let label = makeLabel("Transcribing", size: 12, weight: .medium, color: .labelColor)
+            let label = Style.plainLabel("Transcribing", size: 12, weight: .medium, color: .labelColor)
             label.frame = NSRect(x: 60, y: 11, width: 150, height: 16)
             content.addSubview(label)
         }
@@ -136,38 +136,4 @@ final class DictationOverlay {
         return dot
     }
 
-    // MARK: Window + view helpers (mirror of Picker.swift's private helpers)
-
-    private func configureOverlay(_ panel: NSPanel) {
-        panel.title = "Penny"
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.level = .screenSaver
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = true
-        panel.isReleasedWhenClosed = false
-    }
-
-    private func makeMaterial(frame: NSRect) -> NSView {
-        let view = NSVisualEffectView(frame: frame)
-        view.material = .hudWindow
-        view.blendingMode = .behindWindow
-        view.state = .active
-        view.wantsLayer = true
-        view.layer?.cornerRadius = 16
-        view.layer?.masksToBounds = true
-        view.layer?.borderWidth = 0.5
-        view.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.55).cgColor
-        return view
-    }
-
-    private func makeLabel(_ text: String, size: CGFloat, weight: NSFont.Weight, color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = NSFont.systemFont(ofSize: size, weight: weight)
-        field.textColor = color
-        field.backgroundColor = .clear
-        return field
-    }
 }

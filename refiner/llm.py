@@ -1,59 +1,102 @@
-"""Anthropic call. Other providers will dispatch here in v2.
+"""LLM dispatch for the supported providers.
 
-Keys live in macOS Keychain under service `penny`, account
-`anthropic` (preferred). The original installation stored the key under
-account `api_key`; we still read that as a fallback so existing users
-don't have to re-enter their key.
+Provider and model come from the user config. API keys come from the
+process environment, set by the Swift app when it spawns this subprocess.
+We deliberately do NOT read the macOS Keychain from Python: doing so
+forces every refinement to trigger an "Always Allow" prompt for the
+Python interpreter, separately from the prompt for Penny.app. By letting
+Swift own Keychain and pass the key through `env`, the user only has to
+approve Keychain access once, for Penny itself.
 """
 
 from __future__ import annotations
 
 import os
 
-import anthropic
 
-
-def get_api_key(provider: str = "anthropic") -> str:
-    env_var = {
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openai": "OPENAI_API_KEY",
-        "kimi": "MOONSHOT_API_KEY",
-        "gemini": "GOOGLE_API_KEY",
-    }.get(provider, "ANTHROPIC_API_KEY")
-
-    if key := os.environ.get(env_var):
-        return key
-
-    try:
-        import keyring
-        if key := keyring.get_password("penny", provider):
-            return key
-        # Legacy entry from earlier versions.
-        if provider == "anthropic":
-            if key := keyring.get_password("penny", "api_key"):
-                return key
-    except Exception:
-        pass
-
-    raise RuntimeError(
-        f"No API key found for {provider}. Set it in the preferences window "
-        f"or export {env_var}."
-    )
+_ENV_VARS = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai":    "OPENAI_API_KEY",
+    "gemini":    "GOOGLE_API_KEY",
+}
 
 
 def refine(text: str, system_prompt: str, config: dict) -> str:
     provider = config.get("llm_provider", "anthropic")
-    if provider != "anthropic":
-        raise RuntimeError(
-            f"Provider '{provider}' isn't wired up yet. Use 'anthropic' for now."
-        )
+    model = config.get("model", "")
+    max_tokens = int(config.get("max_tokens", 1024))
+    timeout = int(config.get("timeout_seconds", 45))
 
-    client = anthropic.Anthropic(api_key=get_api_key(provider))
+    api_key = _get_api_key(provider)
+
+    if provider == "anthropic":
+        return _call_anthropic(text, system_prompt, model, api_key, max_tokens, timeout)
+    if provider == "openai":
+        return _call_openai(text, system_prompt, model, api_key, max_tokens, timeout)
+    if provider == "gemini":
+        return _call_gemini(text, system_prompt, model, api_key, max_tokens, timeout)
+
+    raise RuntimeError(f"Unknown provider: {provider}")
+
+
+# ── Per-provider implementations ──────────────────────────────────────────────
+
+def _call_anthropic(text, system_prompt, model, api_key, max_tokens, timeout):
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=api_key)
     message = client.messages.create(
-        model=config.get("model", "claude-sonnet-4-6"),
-        max_tokens=config.get("max_tokens", 1024),
+        model=model or "claude-sonnet-4-6",
+        max_tokens=max_tokens,
         system=system_prompt,
         messages=[{"role": "user", "content": text}],
-        timeout=config.get("timeout_seconds", 45),
+        timeout=timeout,
     )
     return message.content[0].text
+
+
+def _call_openai(text, system_prompt, model, api_key, max_tokens, timeout):
+    from openai import OpenAI
+
+    client = OpenAI(api_key=api_key, timeout=timeout)
+    response = client.chat.completions.create(
+        model=model or "gpt-4o",
+        max_tokens=max_tokens,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": text},
+        ],
+    )
+    return response.choices[0].message.content or ""
+
+
+def _call_gemini(text, system_prompt, model, api_key, max_tokens, timeout):
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model or "gemini-2.5-flash",
+        contents=text,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            max_output_tokens=max_tokens,
+        ),
+    )
+    return response.text or ""
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _get_api_key(provider: str) -> str:
+    env_var = _ENV_VARS.get(provider)
+    if not env_var:
+        raise RuntimeError(f"Unknown provider: {provider}")
+
+    key = os.environ.get(env_var)
+    if not key:
+        raise RuntimeError(
+            f"No {env_var} set. Open Penny → Preferences → AI Provider "
+            f"and add your {provider.capitalize()} API key."
+        )
+    return key

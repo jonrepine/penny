@@ -25,6 +25,12 @@ final class OnboardingWindowController: NSWindowController {
         window.center()
         window.isReleasedWhenClosed = false
 
+        // Stay visible while the user clicks into System Settings (which often
+        // opens on a different Space). Without this the onboarding window
+        // gets stranded on the Space where it first appeared.
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.level = .floating
+
         super.init(window: window)
         window.contentView = buildContentView()
         refresh()

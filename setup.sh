@@ -67,6 +67,7 @@ xcrun swiftc $APP_DIR/native/*.swift \
   -framework AVFoundation \
   -framework Carbon \
   -framework IOKit \
+  -framework LocalAuthentication \
   -o "$BUILD_BUNDLE/Contents/MacOS/Penny"
 
 cp "$APP_DIR/refiner_cli.py" "$BUILD_BUNDLE/Contents/Resources/"

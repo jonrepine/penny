@@ -5,9 +5,13 @@ enum RefinerResult {
     case failure(String)
 }
 
-/// Calls the Python helper that owns the prompt templates and the Anthropic
-/// SDK call. JSON in, JSON out. Decoupled from the rest of Swift so prompts
-/// can change without recompiling the native daemon.
+/// Calls the Python helper that owns the prompt templates and the LLM SDK
+/// calls. JSON in, JSON out. Decoupled from the rest of Swift so prompts can
+/// change without recompiling the native daemon.
+///
+/// API keys are read from Keychain on the Swift side and pushed into the
+/// subprocess via env vars, so the user only ever sees one "Always Allow"
+/// Keychain prompt (for Penny itself) instead of one per Python invocation.
 struct RefinerHelper {
     let pythonPath: String
     let scriptPath: String
@@ -16,6 +20,21 @@ struct RefinerHelper {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: pythonPath)
         process.arguments = [scriptPath]
+
+        var environment = ProcessInfo.processInfo.environment
+        // Pull whichever provider keys are in Keychain, push them through env
+        // so Python never has to touch Keychain itself.
+        let providerEnvVars: [String: String] = [
+            "anthropic": "ANTHROPIC_API_KEY",
+            "openai":    "OPENAI_API_KEY",
+            "gemini":    "GOOGLE_API_KEY",
+        ]
+        for (provider, envVar) in providerEnvVars {
+            if let key = Keychain.read(account: provider), !key.isEmpty {
+                environment[envVar] = key
+            }
+        }
+        process.environment = environment
 
         let input = Pipe()
         let output = Pipe()

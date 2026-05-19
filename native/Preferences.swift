@@ -6,9 +6,19 @@ import AppKit
 final class PreferencesWindowController: NSWindowController {
     private let appDir: String
     private var config: AppConfig
+
+    // Provider section
+    private var providerPicker: NSPopUpButton!
     private var apiKeyField: NSSecureTextField!
     private var modelPicker: NSPopUpButton!
+    private var modelBlurb: NSTextField!
     private var customSlugField: NSTextField!
+
+    // Dictation section
+    private var whisperPicker: NSPopUpButton!
+    private var whisperBlurb: NSTextField!
+
+    // Modes / status
     private var modesTable: NSTableView!
     private var statusLabel: NSTextField!
 
@@ -45,6 +55,7 @@ final class PreferencesWindowController: NSWindowController {
 
         stack.addArrangedSubview(buildStatusSection())
         stack.addArrangedSubview(buildProviderSection())
+        stack.addArrangedSubview(buildDictationSection())
         stack.addArrangedSubview(buildGeneralSection())
         stack.addArrangedSubview(buildModesSection())
 
@@ -132,17 +143,21 @@ final class PreferencesWindowController: NSWindowController {
     }
 
     @objc private func refreshStatus() {
-        let trusted = AXIsProcessTrusted()
-        let icon = trusted ? "\u{2713}" : "\u{2717}"
-        let trustText = trusted
-            ? "\(icon) Accessibility is granted."
-            : "\(icon) Accessibility is NOT granted. Toggle this binary off and on in System Settings → Privacy & Security → Accessibility."
-        statusLabel.stringValue = trustText
+        let a11y = Permissions.isGranted(.accessibility)
+        let im   = Permissions.isGranted(.inputMonitoring)
+        let mic  = Permissions.isGranted(.microphone)
+        let dot: (Bool) -> String = { $0 ? "\u{2713}" : "\u{2717}" }
+        let lines = [
+            "\(dot(a11y)) Accessibility",
+            "\(dot(im)) Input Monitoring",
+            "\(dot(mic)) Microphone",
+        ]
+        statusLabel.stringValue = lines.joined(separator: "    ")
     }
 
     @objc private func openPrivacyPane() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-        NSWorkspace.shared.open(url)
+        // Accessibility is the most common one users need to revisit.
+        Permissions.openSystemSettings(for: .accessibility)
     }
 
     // MARK: Provider section
@@ -156,20 +171,22 @@ final class PreferencesWindowController: NSWindowController {
 
         stack.addArrangedSubview(buildSectionHeader("AI Provider"))
 
-        let providerPicker = NSPopUpButton(frame: .zero, pullsDown: false)
-        providerPicker.addItems(withTitles: ["Anthropic", "OpenAI (coming soon)", "Kimi (coming soon)", "Gemini (coming soon)"])
-        providerPicker.selectItem(withTitle: "Anthropic")
+        // Provider picker — populated from Providers.all.
+        providerPicker = NSPopUpButton(frame: .zero, pullsDown: false)
+        for provider in Providers.all {
+            providerPicker.addItem(withTitle: provider.label)
+            providerPicker.lastItem?.representedObject = provider.id
+        }
+        if let current = Providers.provider(id: config.llmProvider),
+           let item = providerPicker.itemArray.first(where: { ($0.representedObject as? String) == current.id }) {
+            providerPicker.select(item)
+        }
         providerPicker.target = self
         providerPicker.action = #selector(providerChanged(_:))
-        // Disable non-Anthropic for now (v1 ships Anthropic only).
-        for index in 1..<providerPicker.numberOfItems {
-            providerPicker.item(at: index)?.isEnabled = false
-        }
         stack.addArrangedSubview(buildField("Provider", control: providerPicker))
 
+        // API key field for the selected provider.
         apiKeyField = NSSecureTextField()
-        apiKeyField.placeholderString = "sk-ant-…"
-        apiKeyField.stringValue = Keychain.read(account: "anthropic") ?? ""
         apiKeyField.translatesAutoresizingMaskIntoConstraints = false
         apiKeyField.widthAnchor.constraint(equalToConstant: 360).isActive = true
 
@@ -177,57 +194,132 @@ final class PreferencesWindowController: NSWindowController {
         apiRow.orientation = .horizontal
         apiRow.spacing = 8
         apiRow.addArrangedSubview(apiKeyField)
+
         let saveKey = NSButton(title: "Save key", target: self, action: #selector(saveAPIKey))
         saveKey.bezelStyle = .rounded
         apiRow.addArrangedSubview(saveKey)
+
+        let getKey = NSButton(title: "Get an API key…", target: self, action: #selector(openSignupURL))
+        getKey.bezelStyle = .accessoryBarAction
+        apiRow.addArrangedSubview(getKey)
+
         stack.addArrangedSubview(buildField(
-            "API Key (stored in macOS Keychain)",
+            "API Key (stored only in macOS Keychain)",
             control: apiRow,
-            helpText: "Not written to disk. Stored under service “penny”, account “anthropic”."
+            helpText: "Saved under service “penny”, account = provider name. Not written to disk."
         ))
 
-        let anthropicModels = [
-            "claude-sonnet-4-6",
-            "claude-haiku-4-5-20251001",
-            "claude-opus-4-7",
-            "Custom slug…",
-        ]
+        // Model picker for the selected provider.
         modelPicker = NSPopUpButton(frame: .zero, pullsDown: false)
-        modelPicker.addItems(withTitles: anthropicModels)
-        if anthropicModels.contains(config.model) {
-            modelPicker.selectItem(withTitle: config.model)
-        } else {
-            modelPicker.selectItem(withTitle: "Custom slug…")
-        }
         modelPicker.target = self
         modelPicker.action = #selector(modelChanged(_:))
         stack.addArrangedSubview(buildField("Model", control: modelPicker))
 
+        // Recommendation blurb that updates with the selected model.
+        modelBlurb = NSTextField(wrappingLabelWithString: "")
+        modelBlurb.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        modelBlurb.textColor = .secondaryLabelColor
+        modelBlurb.preferredMaxLayoutWidth = 516
+        stack.addArrangedSubview(modelBlurb)
+
+        // Custom slug input (revealed when "Custom slug…" is chosen).
         customSlugField = NSTextField()
         customSlugField.placeholderString = "exact model identifier"
-        customSlugField.stringValue = anthropicModels.contains(config.model) ? "" : config.model
         customSlugField.translatesAutoresizingMaskIntoConstraints = false
         customSlugField.widthAnchor.constraint(equalToConstant: 360).isActive = true
         customSlugField.target = self
         customSlugField.action = #selector(customSlugChanged(_:))
-        customSlugField.isHidden = anthropicModels.contains(config.model)
+        customSlugField.isHidden = true
         stack.addArrangedSubview(customSlugField)
 
+        applyCurrentProvider()
         return stack
     }
 
+    /// Reset the API key field, model dropdown, and blurb to reflect whichever
+    /// provider is currently selected.
+    private func applyCurrentProvider() {
+        guard let providerID = currentProviderID,
+              let provider = Providers.provider(id: providerID)
+        else { return }
+
+        // API key for this provider, pulled from Keychain.
+        apiKeyField.placeholderString = provider.placeholder
+        apiKeyField.stringValue = Keychain.read(account: provider.id) ?? ""
+
+        // Repopulate model dropdown.
+        modelPicker.removeAllItems()
+        for option in provider.models {
+            modelPicker.addItem(withTitle: option.label)
+            modelPicker.lastItem?.representedObject = option.id
+        }
+        modelPicker.addItem(withTitle: "Custom slug…")
+        modelPicker.lastItem?.representedObject = "__custom__"
+
+        // Pick whichever item matches the current `config.model`, otherwise
+        // fall back to the provider's first (recommended) option.
+        if let match = modelPicker.itemArray.first(where: { ($0.representedObject as? String) == config.model }) {
+            modelPicker.select(match)
+            customSlugField.isHidden = true
+        } else if !config.model.isEmpty {
+            modelPicker.selectItem(withTitle: "Custom slug…")
+            customSlugField.stringValue = config.model
+            customSlugField.isHidden = false
+        } else {
+            modelPicker.selectItem(at: 0)
+            config.model = provider.models.first?.id ?? ""
+            customSlugField.isHidden = true
+            persist()
+        }
+        updateModelBlurb()
+    }
+
+    private func updateModelBlurb() {
+        guard let providerID = currentProviderID,
+              let provider = Providers.provider(id: providerID),
+              let selectedID = modelPicker.selectedItem?.representedObject as? String
+        else {
+            modelBlurb.stringValue = ""
+            return
+        }
+        if selectedID == "__custom__" {
+            modelBlurb.stringValue = "Type the model slug exactly as the provider expects."
+            return
+        }
+        modelBlurb.stringValue = provider.models.first { $0.id == selectedID }?.blurb ?? ""
+    }
+
+    private var currentProviderID: String? {
+        providerPicker.selectedItem?.representedObject as? String
+    }
+
     @objc private func providerChanged(_ sender: NSPopUpButton) {
-        // v1 ships Anthropic only; revert if a disabled item somehow fires.
-        sender.selectItem(withTitle: "Anthropic")
+        guard let id = sender.selectedItem?.representedObject as? String else { return }
+        config.llmProvider = id
+        // Reset to provider's recommended model on switch.
+        if let recommended = Providers.provider(id: id)?.models.first {
+            config.model = recommended.id
+        }
+        persist()
+        applyCurrentProvider()
+    }
+
+    @objc private func openSignupURL() {
+        guard let id = currentProviderID,
+              let provider = Providers.provider(id: id),
+              let url = URL(string: provider.signupURL)
+        else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func saveAPIKey() {
+        guard let provider = currentProviderID else { return }
         let key = apiKeyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
             Picker.showToast("Enter an API key first", duration: 1.4)
             return
         }
-        if Keychain.write(account: "anthropic", value: key) {
+        if Keychain.write(account: provider, value: key) {
             Picker.showToast("API key saved", duration: 1.0)
         } else {
             Picker.showToast("Couldn’t save to Keychain", duration: 1.6)
@@ -235,14 +327,16 @@ final class PreferencesWindowController: NSWindowController {
     }
 
     @objc private func modelChanged(_ sender: NSPopUpButton) {
-        let title = sender.selectedItem?.title ?? config.model
-        if title == "Custom slug…" {
+        guard let id = sender.selectedItem?.representedObject as? String else { return }
+        if id == "__custom__" {
             customSlugField.isHidden = false
             customSlugField.window?.makeFirstResponder(customSlugField)
+            updateModelBlurb()
             return
         }
         customSlugField.isHidden = true
-        config.model = title
+        config.model = id
+        updateModelBlurb()
         persist()
     }
 
@@ -251,6 +345,63 @@ final class PreferencesWindowController: NSWindowController {
         guard !value.isEmpty else { return }
         config.model = value
         persist()
+    }
+
+    // MARK: Dictation section
+
+    private func buildDictationSection() -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        stack.addArrangedSubview(buildSectionHeader("Dictation (Whisper)"))
+
+        whisperPicker = NSPopUpButton(frame: .zero, pullsDown: false)
+        for option in WhisperModels.all {
+            whisperPicker.addItem(withTitle: option.label)
+            whisperPicker.lastItem?.representedObject = option.id
+        }
+        if let item = whisperPicker.itemArray.first(where: { ($0.representedObject as? String) == config.whisperModel }) {
+            whisperPicker.select(item)
+        }
+        whisperPicker.target = self
+        whisperPicker.action = #selector(whisperModelChanged(_:))
+        stack.addArrangedSubview(buildField("Whisper model", control: whisperPicker))
+
+        whisperBlurb = NSTextField(wrappingLabelWithString: "")
+        whisperBlurb.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        whisperBlurb.textColor = .secondaryLabelColor
+        whisperBlurb.preferredMaxLayoutWidth = 516
+        stack.addArrangedSubview(whisperBlurb)
+
+        let ramText = NSTextField(labelWithString:
+            String(format: "Detected %.0f GB of RAM. Larger models give better accuracy but use more memory and disk.", SystemInfo.totalRAMGigabytes()))
+        ramText.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+        ramText.textColor = .tertiaryLabelColor
+        stack.addArrangedSubview(ramText)
+
+        updateWhisperBlurb()
+        return stack
+    }
+
+    private func updateWhisperBlurb() {
+        guard let id = whisperPicker.selectedItem?.representedObject as? String,
+              let option = WhisperModels.option(id: id) else { return }
+        whisperBlurb.stringValue = option.blurb
+    }
+
+    @objc private func whisperModelChanged(_ sender: NSPopUpButton) {
+        guard let id = sender.selectedItem?.representedObject as? String else { return }
+        config.whisperModel = id
+        persist()
+        updateWhisperBlurb()
+        // Restart the dictation daemon so it reloads the new model.
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        task.arguments = ["kickstart", "-k", "gui/\(getuid())/com.penny.dictate"]
+        try? task.run()
     }
 
     // MARK: General section
