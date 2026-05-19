@@ -1,0 +1,9 @@
+anthropic>=0.40.0
+keyring>=24.0.0
+
+# Dictation
+faster-whisper>=1.0.0
+numpy>=1.26.0
+scipy>=1.11.0
+sounddevice>=0.4.6
+pynput>=1.7.0
