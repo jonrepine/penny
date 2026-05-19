@@ -154,6 +154,26 @@ text). The detection is exact-match; even a trailing newline difference
 counts as a change. Your prompts must make this byte-equality possible
 when no edit is warranted.
 
+**Detection rule** (already handled by the engineering side, listed
+here so you know what you're optimising for):
+
+```
+norm(s) = s.trimmingCharacters(in: .whitespacesAndNewlines)
+
+if norm(refined) == norm(original):
+    show toast: "✓ No change needed"
+    skip paste entirely  (the user's selection stays as-is)
+else:
+    paste refined
+```
+
+The toast is the existing small bottom-centre HUD used for "✓ Pasted",
+shown for 1.2 s, accent-tinted. The user's selection is **not** touched
+in this branch. From your side, the only obligation is: when no edit is
+warranted, return the input **with no added whitespace, no rewrapping,
+no normalisation of line endings**. The trim above is generous, but
+preserving the input character-for-character is safest.
+
 ### 4.4 Don't impose your voice
 
 Every editing mode (1, 2, 3) must preserve the user's voice, register,
@@ -232,100 +252,323 @@ unknowns. The user didn't ask for SF Pro; the model invented it.
 ## 6. Adaptive style rules (new feature you must design)
 
 Today every mode uses the same prompt for every user. We want a layer
-of *user-specific* style rules on top.
+of *user-specific* style rules on top: the user pastes in a few of their
+own past writings for a given mode, an LLM extracts the patterns, and
+those patterns get baked into the mode's system prompt for all future
+runs.
 
-### 6.1 The user-facing flow
+This section specifies the *whole* feature, not just the LLM bits. The
+parts marked **[ENG]** are built by the Penny engineering team; you
+treat them as given infrastructure. The parts marked **[PE]** are what
+you, the prompt engineer, design.
 
-In Preferences → Modes, each mode has an optional **"Style examples"**
-section. The user can paste in 1–5 examples of previous work they want
-to emulate for that mode:
+### 6.1 Where it lives in the UI [ENG]
 
-- For Slack mode: a few of their actual Slack messages.
-- For Email mode: a few of their actual sent emails.
-- For Report mode: a Notion report they're proud of.
-- For Improve Writing mode: a paragraph they think reads well.
+The existing Preferences window has a **Modes** section with a table of
+modes plus Add / Edit / Delete buttons. The Edit sheet today has three
+fields: **Name**, **Description**, **System prompt**.
 
-When the user submits examples, Penny sends them to the LLM with a
-**rule-extraction prompt** (which you also design). The LLM returns a
-list of concrete style rules — patterns it detected — that get appended
-to the mode's system prompt going forward.
+We add a fourth and fifth section to that sheet:
 
-The user sees the extracted rules in the same Preferences pane, can edit
-them, and can delete examples or rules at any time.
+```
+┌─ Edit Mode "Slack" ─────────────────────────────────┐
+│                                                     │
+│ Name        [Slack                              ]   │
+│ Description [succinct · warm · lowercase        ]   │
+│                                                     │
+│ System prompt (read-only for built-in modes)        │
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ You are rewriting text as a Slack message ...   │ │
+│ └─────────────────────────────────────────────────┘ │
+│                                                     │
+│ Style examples (optional — up to 5)                 │
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ 1. hey just shipped the auth fix 👀             │ │
+│ │ 2. quick heads up that the deploy is ...        │ │
+│ │ 3. (empty — Add example…)                       │ │
+│ └─────────────────────────────────────────────────┘ │
+│                       [ Re-extract style rules ]    │
+│                                                     │
+│ Learned style rules (refreshed 14:22, 19 May)       │
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ • Sentences start lowercase, no end period      │ │
+│ │ • Never sign off                                │ │
+│ │ • Average length 1–2 short lines                │ │
+│ │ • 👀 used to flag review-please items           │ │
+│ │ • Hedges like "just" and "quick" common         │ │
+│ └─────────────────────────────────────────────────┘ │
+│                                                     │
+│             [ Cancel ]   [ Save ]                   │
+└─────────────────────────────────────────────────────┘
+```
 
-### 6.2 What the rule-extraction prompt must produce
+Behaviour:
 
-For each mode the user provides examples for, the extraction prompt
-must return a JSON array of short, concrete rules. Examples of what
-a good rule looks like (these are illustrative; you decide the format):
+- Examples are plain-text fields, one per row, add up to 5.
+- The **Re-extract style rules** button is enabled when at least one
+  example exists and the rules are stale relative to the examples.
+- The **Learned style rules** list is editable in place — the user can
+  add, delete, or reword any line. Edits persist; subsequent
+  re-extractions don't blow them away (see §6.6).
+- Deleting an example marks the rules as stale (timestamp turns red).
+- When the user clicks Re-extract, a small inline progress indicator
+  appears next to the button while the extraction call is in flight.
 
-- "Sentences typically start lowercase except for proper nouns."
-- "Messages rarely exceed three lines."
-- "Sign-offs are never used."
-- "Numbers under ten are written as words."
-- "Emojis used sparingly — typically 🙏 for thanks, 👀 for review-please."
+### 6.2 On-disk format [ENG]
 
-What a *bad* rule looks like (must be avoided):
+User-supplied examples live alongside modes in `~/.penny/modes.json`
+as a new optional field on each mode object:
 
-- "Be more concise." (too vague; not a pattern, a vibe)
-- "Match the user's tone." (already a global rule; not extracted from
-  examples)
-- "Sentences vary in length from 4 to 23 words." (statistical noise,
-  not a meaningful pattern)
+```json
+{
+  "id": 4,
+  "name": "Slack",
+  "detail": "succinct · warm · lowercase",
+  "isCustom": false,
+  "isCancel": false,
+  "locked": false,
+  "prompt": "...",
+  "examples": [
+    "hey just shipped the auth fix 👀",
+    "quick heads up that the deploy is broken — looking into it 🙏"
+  ]
+}
+```
 
-### 6.3 The "rules log"
+Extracted rules live in a separate file so they can be invalidated
+independently, `~/.penny/style-rules.json`:
 
-Once extracted, rules are stored in `~/.penny/style-rules.json`,
-keyed by mode id. The preferences window has a panel per mode showing:
+```json
+{
+  "4": {
+    "rules": [
+      "Sentences start lowercase, no end period",
+      "Never sign off",
+      "👀 used to flag review-please items"
+    ],
+    "extracted_at": "2026-05-19T14:22:11Z",
+    "examples_hash": "sha256:7c0fa…"
+  },
+  "5": { … }
+}
+```
 
-- The user's submitted examples (collapsed by default).
-- The extracted rules (editable text list).
-- A timestamp of when rules were last refreshed.
-- A "Re-extract from examples" button.
+`examples_hash` is the sha256 of the joined examples; the engineering
+side uses it to detect "examples changed since last extraction" and
+flip the stale indicator. The prompt engineer doesn't have to think
+about this field; it's purely engineering bookkeeping.
 
-The rules are appended to the mode's base system prompt at refinement
-time. You should design how this appending happens — for example, as
-a `STYLE RULES (learned from this user's examples):` section after the
-mode's base instructions, or interwoven with the mode's existing
-rule-list, whichever produces better LLM behaviour.
+### 6.3 When extraction runs [ENG]
 
-### 6.4 Constraints on the style-rule system
+Three triggers:
 
-- **Opt-in.** Modes work fine with zero examples. The user is not
-  required to provide them.
-- **Auditable.** Every rule shown to the user must be in plain English,
-  not buried in a JSON blob they can't read.
-- **Limited.** If the LLM extracts 40 rules, that's a smell. Suggest a
-  reasonable cap (e.g. 10 per mode) and have the extraction prompt
-  enforce it.
-- **Reversible.** Deleting examples deletes the rules they generated.
-  Deleting individual rules works too.
+1. **Explicit**: user clicks **Re-extract style rules**.
+2. **Implicit after first example**: when the user adds an example
+   and there are no rules yet for that mode, Penny prompts (with a
+   small inline checkbox) to extract automatically.
+3. **Never automatic on every save.** Extraction costs an LLM call;
+   we don't fire it on every keystroke.
+
+Extraction is run via the same Python helper that does refinement
+(reuses the configured provider/model). The Swift app calls a new
+subcommand on `refiner_cli.py`, passes the mode's intent + the
+examples, gets back a JSON list of rules, writes them to disk,
+re-renders the Preferences sheet.
+
+### 6.4 The extraction prompt [PE]
+
+This is one of the artefacts you deliver. It is **a different prompt
+from the mode prompts**. The user-message payload is shaped like:
+
+```json
+{
+  "mode_name": "Slack",
+  "mode_intent": "succinct · warm · lowercase",
+  "mode_base_prompt": "You are rewriting text as a Slack message ...",
+  "examples": [
+    "hey just shipped the auth fix 👀",
+    "quick heads up that the deploy is broken — looking into it 🙏",
+    "..."
+  ]
+}
+```
+
+Your prompt must produce a JSON response in this exact shape (so the
+Swift side can parse it without a tolerant LLM-JSON parser):
+
+```json
+{
+  "rules": [
+    "Sentences start lowercase, no end period",
+    "Never sign off",
+    "👀 used to flag review-please items"
+  ]
+}
+```
+
+Constraints on what counts as a good rule:
+
+- **Concrete and observable.** "Sentences start lowercase" is a rule.
+  "Be more casual" is not.
+- **Patterned, not idiosyncratic.** A rule must hold across at least
+  two examples. One-off quirks don't make the cut.
+- **Stylistic, not content.** "Often mentions the auth team" is content,
+  not style — exclude.
+- **Short.** Each rule is one line, ≤ 15 words. Easy to skim.
+- **At most 10 rules.** Hard cap. If the extraction wants to surface 14
+  patterns, it picks the 10 strongest.
+
+Anti-rules (must not appear):
+
+- Anything that just paraphrases the mode's existing base prompt.
+- Statistics ("average length 23 words").
+- Aspirations or vibes ("warm and friendly tone").
+- Rules that would make the LLM hallucinate ("Always mention the
+  user's role at the company").
+
+### 6.5 How rules are injected at refinement time [PE]
+
+You design the injection format. The Swift daemon hands the Python
+helper the mode's base prompt plus the rule list; the helper sends
+one combined system message to the LLM at refinement time.
+
+You decide:
+
+- **Whether the rules are a separate section or interwoven.** E.g.
+  ```
+  <base prompt unchanged>
+  
+  STYLE RULES (learned from your past writing):
+  - Sentences start lowercase, no end period
+  - Never sign off
+  - 👀 used to flag review-please items
+  ```
+  vs. weaving them into the existing rule list.
+- **What precedence rules have when they conflict with the base
+  prompt** (they usually don't — base prompt is generic, learned rules
+  are user-specific — but a Slack example user with rule "always end
+  in a period" would conflict with the base prompt's "no end period").
+- **Whether the rules appear before or after the OUTPUT RULE guard.**
+  Probably after, so the user's rules can't accidentally override "no
+  refusals" etc.
+
+Whatever you choose, document it in `docs/prompt-design-notes.md` so
+the engineering team can implement it.
+
+### 6.6 User edits to rules [ENG, but you should be aware]
+
+The rules list is editable in the UI. The user can:
+
+- **Delete a rule.** It stays deleted across re-extractions. We track
+  deleted rules per-mode in `style-rules.json`:
+  ```json
+  "4": {
+    "rules": [...],
+    "deleted_rules": ["Always uses three-dot ellipses..."],
+    ...
+  }
+  ```
+  On re-extraction, if the LLM proposes a deleted rule again, the
+  helper filters it out before saving.
+- **Edit a rule's wording.** Marks it as user-edited; future
+  re-extractions don't overwrite user-edited rules.
+- **Add a manual rule.** Same status as user-edited.
+
+This means rules have three provenance flags: `extracted`, `edited`,
+`manual`. All three appear identically in the UI; the difference only
+matters for re-extraction merge logic.
+
+### 6.7 Constraints summary
+
+- **Opt-in.** Modes work fine with zero examples.
+- **Auditable.** Every rule is plain English, surfaced in Preferences.
+- **Bounded.** Max 10 rules per mode, max 5 examples per mode.
+- **Reversible.** Deleting examples, deleting rules, and resetting the
+  whole mode to defaults are all one click.
+- **Audit log.** A user can see, at a glance, when the rules were last
+  refreshed and what examples produced them. (The timestamp + collapsed
+  examples list in the UI mock above is the audit log.)
+- **No silent edits to the model.** Rules only change behaviour after
+  the user clicks Re-extract or adds rules manually. Penny never
+  modifies someone's prompt without an explicit action.
 
 ---
 
 ## 7. What you deliver
 
-A pull request or patch containing:
+A pull request or patch containing exactly these artefacts:
 
-1. **New `config/modes.default.json`** with your redesigned prompts for
-   modes 1–8. Use the existing JSON structure.
-2. **A new prompt for the style-rule extraction LLM call** (one file:
-   `config/style-extraction.prompt.txt` or similar).
-3. **A new prompt fragment for how learned rules get injected** at
-   refinement time (could be a template string, e.g.
-   `"\n\nSTYLE RULES (learned from your examples):\n{rules}\n"`).
-4. **A short rationale doc** — one or two paragraphs per mode
-   explaining what you changed and why. Lives at
-   `docs/prompt-design-notes.md`.
-5. **A regression test set**: at least 30 inputs across the 8 modes
-   covering the failure modes in §5 plus your own. JSON file at
-   `docs/prompt-tests.json` with `{mode, input, expected_behaviour}`
-   where `expected_behaviour` is one of `unchanged`, `edited`,
-   `restyled`, with notes for nuanced cases.
+1. **`config/modes.default.json`** — redesigned `prompt` field for each
+   of modes 1–8. Same JSON shape as the current file. Other fields
+   untouched.
 
-You do not write Swift or Python beyond JSON config files. The
-engineering team wires up the style-rules UI and persistence; you
-specify *what should be sent to the LLM*, not how.
+2. **`config/style-extraction.prompt.txt`** — the system prompt for
+   the rule-extraction LLM call described in §6.4. Plain text. The
+   user message is built by the engineering side from the JSON
+   payload in §6.4 and you can assume that shape.
+
+3. **`config/style-rule-injection.template.txt`** — the template used
+   at refinement time when a mode has learned rules. Uses simple
+   placeholder substitution; document which placeholders you need
+   in the comments at the top of the file. The engineering side will
+   wire the substitution in `refiner/llm.py`. Example:
+
+   ```
+   {{base_prompt}}
+
+   STYLE RULES (learned from this user's writing):
+   {{rules_bulleted}}
+   ```
+
+4. **`docs/prompt-design-notes.md`** — one or two paragraphs per mode
+   explaining what you changed and why. Plus a short section on the
+   extraction prompt: which inputs you found mattered, which you
+   ignored, and how the injection format was chosen.
+
+5. **`docs/prompt-tests.json`** — at least 40 test cases total:
+   - 30+ across modes 1–8 covering the §5 failure modes and edge
+     cases you anticipate.
+   - 10+ for the extraction prompt: given a set of inputs (`mode_name`,
+     `mode_intent`, `mode_base_prompt`, `examples`), what rules
+     should it produce?
+
+   Schema:
+   ```json
+   [
+     {
+       "kind": "refinement",
+       "mode": 1,
+       "input": "thisss is a test",
+       "expected": { "behaviour": "edited", "exact_output": "this is a test" }
+     },
+     {
+       "kind": "refinement",
+       "mode": 3,
+       "input": "What is the biggest building in the world?",
+       "expected": { "behaviour": "unchanged" }
+     },
+     {
+       "kind": "extraction",
+       "input": {
+         "mode_name": "Slack",
+         "mode_intent": "succinct · warm · lowercase",
+         "mode_base_prompt": "<see modes.default.json>",
+         "examples": ["hey just shipped...", "quick heads up..."]
+       },
+       "expected": {
+         "min_rules": 3,
+         "max_rules": 8,
+         "must_contain_themes": ["lowercase", "no period", "informal"]
+       }
+     }
+   ]
+   ```
+
+You do not write Swift or Python beyond these JSON / text files. The
+engineering team wires up the style-rules UI, persistence, hashing,
+provenance flags, and the substitution in `refiner/llm.py`. Your
+contract is everything that goes into an LLM call: the mode prompts,
+the extraction prompt, and the injection template.
 
 ---
 
@@ -344,19 +587,28 @@ specify *what should be sent to the LLM*, not how.
 
 A redesign is ready to ship when:
 
-1. None of the failure modes in §5 reproduce on the listed inputs.
-2. The regression test set in §7.5 passes when each input is fed
-   through the corresponding mode's new prompt.
-3. The "no change required" detection (input == output, byte-for-byte)
-   triggers on at least one input per editing mode (1, 2, 3) where the
-   input is genuinely already correct.
-4. The style-rule extraction prompt, given 3 user-supplied Slack
-   examples, returns 5–10 concrete rules in valid JSON that a human
-   reading the examples would also notice.
-5. Every mode's prompt is under 600 tokens (current `config/modes.json`
-   has some that are bloated — we'd like them tightened along the way).
-6. No mode ever pastes a refusal, a question, a label, or markdown
-   fencing into the user's text field.
+1. **No regressions on §5.** None of the failure modes documented in
+   §5 reproduce on the listed inputs.
+2. **Regression test set passes.** Every entry in `docs/prompt-tests.json`
+   produces output matching its `expected` block when fed through the
+   right prompt with a capable model.
+3. **"No change required" path fires when it should.** At least one
+   input per editing mode (1, 2, 3) returns byte-equal output, so the
+   `✓ No change needed` toast appears instead of a pointless paste.
+4. **Extraction prompt works on real data.** Given 3 user-supplied
+   Slack examples (provided in the test set), the extraction prompt
+   returns 3–8 concrete rules in valid JSON that a human reading the
+   examples would also notice. None of the rules are anti-rules from §6.4.
+5. **Injection format works.** When the rule-injection template is
+   applied to a mode prompt + extracted rules, the resulting combined
+   prompt produces refinements that visibly reflect the rules (a Slack
+   mode user with the lowercase rule never gets sentence-case output).
+6. **Token budget.** Every mode's base prompt is ≤ 600 tokens. The
+   extraction prompt is ≤ 800 tokens. The injection template adds
+   ≤ 200 tokens of overhead beyond the rules themselves.
+7. **No mode ever pastes a refusal, a question, a label, or markdown
+   fencing into the user's text field.** Verified by running every
+   refinement test through the new prompts.
 
 ---
 
