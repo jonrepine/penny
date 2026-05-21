@@ -23,8 +23,15 @@ final class DictationOverlay {
     private var panel: NSPanel?
     private var transcriptLabel: NSTextField?
     private var pollTimer: Timer?
+    private var slowHintTimer: Timer?
     private var lastState: String = ""
     private var lastTranscript: String = ""
+
+    /// How long the user has to wait before the "smaller model" tip fades
+    /// in during a Transcribing overlay. Tuned to never fire on fast
+    /// (tiny.en / base.en / small.en) transcriptions and almost always
+    /// fire on distil-large-v3 or medium.en for longer recordings.
+    private static let slowHintDelay: TimeInterval = 3.0
 
     init() {
         ensureStateFileExists()
@@ -132,18 +139,41 @@ final class DictationOverlay {
     }
 
     private func showTranscribing() {
-        let width: CGFloat = 220
-        let height: CGFloat = 38
+        let width: CGFloat = 380
+        let height: CGFloat = 62
         let p = makePanel(width: width, height: height)
         let content = Style.makeMaterialView(frame: NSRect(x: 0, y: 0, width: width, height: height))
 
+        // Bouncing dots + "Transcribing" label sit at the top of the panel.
+        let topY = height - 22
         for index in 0..<3 {
-            content.addSubview(makeBouncingDot(at: NSPoint(x: 18 + CGFloat(index) * 11, y: 16),
+            content.addSubview(makeBouncingDot(at: NSPoint(x: 18 + CGFloat(index) * 11, y: topY),
                                                offset: Double(index) * 0.18))
         }
         let label = Style.plainLabel("Transcribing", size: 12, weight: .medium, color: .labelColor)
-        label.frame = NSRect(x: 60, y: 11, width: 150, height: 16)
+        label.frame = NSRect(x: 60, y: topY - 5, width: 240, height: 16)
         content.addSubview(label)
+
+        // Hint sits at the bottom of the panel, invisible at first. Only
+        // fades in if the transcription is still running after
+        // `slowHintDelay` seconds — fast pastes never see it.
+        let hint = Style.plainLabel(
+            "Want it faster? Pick a smaller model in Preferences",
+            size: 10, weight: .regular, color: .tertiaryLabelColor
+        )
+        hint.alignment = .center
+        hint.frame = NSRect(x: 18, y: 8, width: width - 36, height: 14)
+        hint.alphaValue = 0
+        content.addSubview(hint)
+
+        slowHintTimer?.invalidate()
+        slowHintTimer = Timer.scheduledTimer(withTimeInterval: Self.slowHintDelay, repeats: false) { [weak hint] _ in
+            guard let hint else { return }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.35
+                hint.animator().alphaValue = 1.0
+            }
+        }
 
         p.contentView = content
         p.orderFrontRegardless()
@@ -151,6 +181,8 @@ final class DictationOverlay {
     }
 
     private func hide() {
+        slowHintTimer?.invalidate()
+        slowHintTimer = nil
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
