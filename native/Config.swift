@@ -48,7 +48,7 @@ struct AppConfig: Codable {
             historyLimit: 50,
             showToasts: true,
             whisperModel: WhisperModels.defaultForCurrentMac().id,
-            whisperPreviewModel: "tiny.en",
+            whisperPreviewModel: "base.en",
             whisperPreviewInterval: 0.4,
             dictionary: []
         )

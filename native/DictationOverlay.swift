@@ -88,8 +88,9 @@ final class DictationOverlay {
     private func showListening() {
         let width: CGFloat = 380
         let headerHeight: CGFloat = 38
-        let transcriptHeight: CGFloat = 64
-        let totalHeight = headerHeight + transcriptHeight
+        let transcriptHeight: CGFloat = 56
+        let footerHeight: CGFloat = 22
+        let totalHeight = headerHeight + transcriptHeight + footerHeight
 
         let p = makePanel(width: width, height: totalHeight)
         let content = Style.makeMaterialView(frame: NSRect(x: 0, y: 0, width: width, height: totalHeight))
@@ -108,10 +109,22 @@ final class DictationOverlay {
         transcript.preferredMaxLayoutWidth = width - 36
         transcript.maximumNumberOfLines = 3
         transcript.lineBreakMode = .byTruncatingHead
-        transcript.frame = NSRect(x: 18, y: 8, width: width - 36, height: transcriptHeight - 12)
+        transcript.frame = NSRect(x: 18, y: footerHeight, width: width - 36, height: transcriptHeight)
         transcript.placeholderString = "Talk now…"
         content.addSubview(transcript)
         transcriptLabel = transcript
+
+        // Footer caption: makes the speed/accuracy split unmistakable.
+        // Live preview uses a small fast model; the actual paste on
+        // release uses the higher-quality "Final transcription model"
+        // configured in Preferences.
+        let footer = Style.plainLabel(
+            "Live preview · final paste is more accurate",
+            size: 10, weight: .regular, color: .tertiaryLabelColor
+        )
+        footer.alignment = .center
+        footer.frame = NSRect(x: 18, y: 4, width: width - 36, height: 14)
+        content.addSubview(footer)
 
         p.contentView = content
         p.orderFrontRegardless()

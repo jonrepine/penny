@@ -7,5 +7,5 @@
   "history_limit": 50,
   "show_notifications": true,
   "whisper_model": "distil-large-v3",
-  "whisper_preview_model": "tiny.en"
+  "whisper_preview_model": "base.en"
 }
